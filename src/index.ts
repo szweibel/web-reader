@@ -14,6 +14,7 @@ async function main() {
       currentUrl: null,
       browser: null,
       page: null,
+      currentIndex: 0,
       currentElement: null
     };
 

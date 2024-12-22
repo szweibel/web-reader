@@ -1,74 +1,86 @@
-import { HTMLElement } from 'node-html-parser';
-import { execSync } from 'child_process';
+import { ElementHandle } from 'puppeteer';
+import { platform } from 'os';
 
 export async function speak(text: string): Promise<void> {
+  const sayModule = await import('say');
   return new Promise((resolve, reject) => {
-    try {
-      // Write text to a temporary file that festival can read
-      const tempFile = '/tmp/festival-text.txt';
-      execSync(`echo "${text}" > ${tempFile}`);
-      // Use festival to speak the text
-      execSync(`festival --tts ${tempFile}`);
-      // Clean up
-      execSync(`rm ${tempFile}`);
-      resolve();
-    } catch (error) {
-      reject(error);
-    }
+    sayModule.default.speak(text, undefined, 1.0, (err: string) => {
+      if (err) reject(err);
+      else resolve();
+    });
   });
 }
 
-export function getElementDescription(element: HTMLElement | null): string {
-  if (!element) return 'No element selected';
+export function getElementDescription(element: ElementHandle | null): Promise<string> {
+  if (!element) return Promise.resolve('No element selected');
 
-  const tag = element.tagName.toLowerCase();
-  const role = element.getAttribute('role');
-  const ariaLabel = element.getAttribute('aria-label');
-  const text = element.textContent.trim();
+  return element.evaluate((el) => {
+    const tag = el.tagName.toLowerCase();
+    const role = el.getAttribute('role');
+    const ariaLabel = el.getAttribute('aria-label');
+    const text = el.textContent?.trim() || '';
 
-  let description = '';
+    let description = '';
 
-  if (role) {
-    description += `${role} `;
-  }
-  if (ariaLabel) {
-    description += `${ariaLabel} `;
-  }
-  if (tag === 'a') {
-    description += 'link ';
-  } else if (tag === 'button') {
-    description += 'button ';
-  } else if (tag === 'input') {
-    const type = element.getAttribute('type') || 'text';
-    description += `${type} input `;
-  }
+    if (role) {
+      description += `${role} `;
+    }
+    if (ariaLabel) {
+      description += `${ariaLabel} `;
+    }
+    if (tag === 'a') {
+      description += 'link ';
+    } else if (tag === 'button') {
+      description += 'button ';
+    } else if (tag === 'input') {
+      const type = el.getAttribute('type') || 'text';
+      description += `${type} input `;
+    }
 
-  description += text;
+    description += text;
 
-  return description.trim();
+    return description.trim();
+  });
 }
 
 export async function checkDependencies(): Promise<void> {
   console.error('Checking system dependencies...');
   
-  // Check for Chrome dependencies
+  // Check for Chrome/Puppeteer dependencies
   try {
     const puppeteer = await import('puppeteer');
     await puppeteer.default.launch();
     console.error('✓ Puppeteer/Chrome dependencies OK');
   } catch (error) {
+    let installInstructions = '';
+    switch (platform()) {
+      case 'darwin':
+        installInstructions = 'brew install chromium';
+        break;
+      case 'win32':
+        installInstructions = 'Please download and install Chrome from https://www.google.com/chrome/';
+        break;
+      default: // Linux
+        installInstructions = 'sudo apt-get install -y chromium-browser || sudo dnf install -y chromium';
+    }
     console.error('✗ Missing Chrome dependencies. Please install with:');
-    console.error('sudo apt-get install -y chromium-browser');
+    console.error(installInstructions);
     process.exit(1);
   }
 
-  // Check for speech dependencies
-  try {
-    execSync('which festival');
-    console.error('✓ Text-to-speech dependencies OK');
-  } catch (error) {
-    console.error('✗ Missing text-to-speech dependencies. Please install with:');
-    console.error('sudo apt-get install -y festival festvox-us-slt-hts');
-    process.exit(1);
+  // Check text-to-speech dependencies
+  if (platform() === 'darwin') {
+    console.error('✓ Text-to-speech dependencies OK (using macOS say command)');
+  } else if (platform() === 'win32') {
+    console.error('✓ Text-to-speech dependencies OK (using Windows SAPI)');
+  } else {
+    try {
+      await speak('Test');
+      console.error('✓ Text-to-speech dependencies OK');
+    } catch (error) {
+      console.error('✗ Text-to-speech dependencies missing. Please install with:');
+      console.error('sudo apt-get install -y festival festvox-us-slt-hts || sudo dnf install -y festival festvox-slt-hts');
+      process.exit(1);
+    }
   }
 }
