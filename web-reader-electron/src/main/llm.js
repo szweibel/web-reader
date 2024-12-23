@@ -47,17 +47,22 @@ class LLMManager {
       console.log('Loading model from:', modelPath);
       
       // Initialize LLM
-      const llama = await getLlama();
-      this.model = await llama.loadModel({
+      const llama = await getLlama({
         modelPath,
+        enableLogging: true,
         nCtx: 2048,
         nThreads: 4,
-        seed: 0
+        seed: 0,
+        f16Kv: true,
+        embedding: false
       });
+      this.model = llama;
       
-      this.context = await this.model.createContext();
       this.session = new LlamaChatSession({
-        contextSequence: this.context.getSequence()
+        llama: this.model,
+        contextSize: 2048,
+        temperature: 0.7,
+        maxTokens: 2000
       });
       
       console.log('LLM initialized');
@@ -78,7 +83,7 @@ class LLMManager {
       console.log('Enhancing description for:', content);
       // Get available tools
       const tools = Object.keys(this.toolkit.tools).join(', ');
-      const result = await this.session.prompt(
+      const result = await this.session.chat(
         `You are an AI assistant helping blind users navigate web content.
          Available tools: ${tools}
          
@@ -102,7 +107,7 @@ class LLMManager {
       console.log('Suggesting navigation for:', content, 'with intent:', intent);
       // Get available tools
       const tools = Object.keys(this.toolkit.tools).join(', ');
-      const result = await this.session.prompt(
+      const result = await this.session.chat(
         `You are an AI assistant helping blind users navigate web content.
          Available tools: ${tools}
          

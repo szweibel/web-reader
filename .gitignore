@@ -1,4 +1,26 @@
+# Node modules
 node_modules/
-build/
-*.log
+
+# Model files
+web-reader-electron/models/*
+web-reader-electron/src/models/*
+
+# macOS files
 .DS_Store
+
+# Logs
+*.log
+
+# Coverage reports
+coverage/
+
+# Build output
+build/
+web-reader-electron/build/
+
+# Package lock files
+package-lock.json
+web-reader-electron/package-lock.json
+
+# Temporary files
+*.tmp
