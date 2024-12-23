@@ -63,46 +63,134 @@ export class PageHandlers {
     }, element);
   }
 
-  private async getFocusableElements(): Promise<ElementHandle<Element>[]> {
+  private async getFocusableElements(type: 'all' | 'landmarks' | 'headings' = 'all'): Promise<ElementHandle<Element>[]> {
     const page = this.state.page as Page;
-    return page.$$(`
-      a[href]:not([aria-hidden="true"]),
-      button:not([disabled]):not([aria-hidden="true"]),
-      input:not([disabled]):not([aria-hidden="true"]),
-      select:not([disabled]):not([aria-hidden="true"]),
-      textarea:not([disabled]):not([aria-hidden="true"]),
-      [tabindex]:not([tabindex="-1"]):not([aria-hidden="true"]),
-      [role="button"]:not([aria-hidden="true"]),
-      [role="link"]:not([aria-hidden="true"]),
-      [role="menuitem"]:not([aria-hidden="true"]),
-      [role="option"]:not([aria-hidden="true"])
-    `);
+    
+    let selector = '';
+    switch (type) {
+      case 'landmarks':
+        selector = `
+          [role="main"],
+          [role="navigation"],
+          [role="search"],
+          [role="complementary"],
+          [role="banner"],
+          [role="contentinfo"],
+          main,
+          nav,
+          header,
+          footer,
+          aside
+        `;
+        break;
+      case 'headings':
+        selector = 'h1, h2, h3, h4, h5, h6';
+        break;
+      default:
+        selector = `
+          a[href]:not([aria-hidden="true"]),
+          button:not([disabled]):not([aria-hidden="true"]),
+          input:not([disabled]):not([aria-hidden="true"]),
+          select:not([disabled]):not([aria-hidden="true"]),
+          textarea:not([disabled]):not([aria-hidden="true"]),
+          [tabindex]:not([tabindex="-1"]):not([aria-hidden="true"]),
+          [role="button"]:not([aria-hidden="true"]),
+          [role="link"]:not([aria-hidden="true"]),
+          [role="menuitem"]:not([aria-hidden="true"]),
+          [role="option"]:not([aria-hidden="true"])
+        `;
+    }
+    
+    return page.$$(selector);
+  }
+
+  private async setupLiveRegionObserver(): Promise<void> {
+    const page = this.state.page as Page;
+    await page.evaluate(() => {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.target instanceof Element) {
+            const live = mutation.target.getAttribute('aria-live');
+            if (live === 'polite' || live === 'assertive') {
+              const text = mutation.target.textContent?.trim();
+              if (text) {
+                // Send message to Node process
+                console.log(JSON.stringify({
+                  type: 'live-region',
+                  priority: live === 'assertive' ? 'high' : 'normal',
+                  text
+                }));
+              }
+            }
+          }
+        });
+      });
+
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true
+      });
+
+      // Handle dynamic content
+      document.addEventListener('DOMContentLoaded', () => {
+        const skipLinks = Array.from(document.querySelectorAll('a[href^="#"]'))
+          .filter(link => {
+            const text = link.textContent?.toLowerCase() || '';
+            return text.includes('skip') || text.includes('jump to') || text.includes('main content');
+          });
+        
+        if (skipLinks.length > 0) {
+          console.log(JSON.stringify({
+            type: 'skip-links',
+            count: skipLinks.length
+          }));
+        }
+      });
+    });
+
+    // Handle console messages for live regions
+    page.on('console', async (msg) => {
+      try {
+        const text = msg.text();
+        if (text.startsWith('{') && text.endsWith('}')) {
+          const data = JSON.parse(text);
+          if (data.type === 'live-region') {
+            await speak(data.text, { priority: data.priority });
+          } else if (data.type === 'skip-links') {
+            await speak(`Found ${data.count} skip links on the page`, { priority: 'high' });
+          }
+        }
+      } catch (error) {
+        // Ignore parsing errors for non-JSON console messages
+      }
+    });
   }
 
   async handleNavigateTo(url: string): Promise<ToolResponse> {
-    // Close existing browser if any
-    await this.cleanup();
-    
     try {
-      // Launch new browser and navigate
-      this.state.browser = await puppeteer.launch({ headless: true });
-      this.state.page = await this.state.browser.newPage();
-      
-      // Enable better error handling
-      this.state.page.on('error', console.error);
-      this.state.page.on('pageerror', console.error);
-      
-      await this.state.page.goto(url, { waitUntil: 'networkidle0' });
+      // Use existing page from state
+      if (!this.state.page) {
+        throw new Error('No page available');
+      }
+
+      // Navigate to URL
+      await this.state.page.goto(url, { 
+        waitUntil: 'networkidle0',
+        timeout: 30000
+      });
       this.state.currentUrl = url;
 
       // Get page information
       const pageInfo = await this.state.page.evaluate(() => {
         const title = document.title;
         const h1 = document.querySelector('h1')?.textContent?.trim() || '';
-        const landmarks = Array.from(document.querySelectorAll('[role="main"], [role="navigation"], [role="search"]'))
+        const landmarks = Array.from(document.querySelectorAll('[role="main"], [role="navigation"], [role="search"], main, nav, header, footer, aside'))
           .map(el => ({
-            role: el.getAttribute('role'),
-            label: el.getAttribute('aria-label') || ''
+            role: el.getAttribute('role') || el.tagName.toLowerCase(),
+            label: el.getAttribute('aria-label') || '',
+            tag: el.tagName.toLowerCase(),
+            text: el.textContent?.trim() || ''
           }));
         return { title, h1, landmarks };
       });
@@ -351,6 +439,170 @@ export class PageHandlers {
     }
   }
 
+  async handleNavigateLandmarks(): Promise<ToolResponse> {
+    if (!this.state.page) {
+      throw new Error('No page is currently open');
+    }
+
+    try {
+      this.state.navigationType = 'landmarks';
+      const landmarks = await this.getFocusableElements('landmarks');
+      
+      if (landmarks.length === 0) {
+        const message = 'No landmarks found on page';
+        await speak(message);
+        return { message };
+      }
+
+      // Reset index when switching to landmark navigation
+      this.state.currentIndex = 0;
+      const currentLandmark = landmarks[0];
+      
+      const landmarkInfo = await this.state.page.evaluate((el) => {
+        return {
+          role: el.getAttribute('role') || el.tagName.toLowerCase(),
+          label: el.getAttribute('aria-label') || '',
+          tag: el.tagName.toLowerCase(),
+          text: el.textContent?.trim() || ''
+        };
+      }, currentLandmark);
+
+      const description = `Switched to landmark navigation. ${landmarks.length} landmarks found. Current: ${landmarkInfo.label || landmarkInfo.role} ${landmarkInfo.text ? `containing ${landmarkInfo.text}` : ''}`;
+      await speak(description);
+
+      // Highlight current landmark
+      await this.state.page.evaluate((el) => {
+        const prev = document.querySelector('.screen-reader-highlight');
+        if (prev) prev.classList.remove('screen-reader-highlight');
+        el.classList.add('screen-reader-highlight');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, currentLandmark);
+
+      return {
+        navigationType: 'landmarks',
+        elementIndex: 0,
+        totalElements: landmarks.length,
+        description,
+        landmarks: [landmarkInfo]
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await speak(`Error navigating landmarks: ${message}`);
+      throw error;
+    }
+  }
+
+  async handleNavigateHeadings(level?: number): Promise<ToolResponse> {
+    if (!this.state.page) {
+      throw new Error('No page is currently open');
+    }
+
+    try {
+      this.state.navigationType = 'headings';
+      const headings = await this.getFocusableElements('headings');
+      
+      if (headings.length === 0) {
+        const message = 'No headings found on page';
+        await speak(message);
+        return { message };
+      }
+
+      // Filter headings by level if specified
+      const filteredHeadings = await Promise.all(
+        headings.map(async h => {
+          const info = await this.state.page!.evaluate((el) => ({
+            level: parseInt(el.tagName[1]),
+            text: el.textContent?.trim() || '',
+            ariaLabel: el.getAttribute('aria-label')
+          }), h);
+          return { element: h, ...info };
+        })
+      );
+
+      const relevantHeadings = level 
+        ? filteredHeadings.filter(h => h.level === level)
+        : filteredHeadings;
+
+      if (relevantHeadings.length === 0) {
+        const message = `No level ${level} headings found`;
+        await speak(message);
+        return { message };
+      }
+
+      // Reset index when switching heading level
+      this.state.currentIndex = 0;
+      this.state.headingLevel = level || relevantHeadings[0].level;
+      
+      const currentHeading = relevantHeadings[0];
+      const description = level
+        ? `Switched to level ${level} headings. ${relevantHeadings.length} headings found. Current: ${currentHeading.ariaLabel || currentHeading.text}`
+        : `Switched to heading navigation. ${headings.length} total headings. Current level ${currentHeading.level}: ${currentHeading.ariaLabel || currentHeading.text}`;
+      
+      await speak(description);
+
+      // Highlight current heading
+      await this.state.page.evaluate((el) => {
+        const prev = document.querySelector('.screen-reader-highlight');
+        if (prev) prev.classList.remove('screen-reader-highlight');
+        el.classList.add('screen-reader-highlight');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, currentHeading.element);
+
+      return {
+        navigationType: 'headings',
+        elementIndex: 0,
+        totalElements: relevantHeadings.length,
+        description,
+        headings: relevantHeadings.map(h => ({
+          level: h.level,
+          text: h.ariaLabel || h.text,
+          isCurrentLevel: h.level === this.state.headingLevel
+        })),
+        currentHeadingLevel: this.state.headingLevel
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await speak(`Error navigating headings: ${message}`);
+      throw error;
+    }
+  }
+
+  async handleChangeHeadingLevel(direction: 'up' | 'down'): Promise<ToolResponse> {
+    if (!this.state.page || this.state.navigationType !== 'headings') {
+      throw new Error('Not in heading navigation mode');
+    }
+
+    try {
+      const headings = await this.getFocusableElements('headings');
+      const levels = await Promise.all(
+        headings.map(h => this.state.page!.evaluate(el => parseInt(el.tagName[1]), h))
+      );
+      
+      const uniqueLevels = Array.from(new Set(levels)).sort();
+      const currentLevel = this.state.headingLevel || uniqueLevels[0];
+      const currentIndex = uniqueLevels.indexOf(currentLevel);
+      
+      let newLevel: number;
+      if (direction === 'up') {
+        newLevel = currentIndex > 0 ? uniqueLevels[currentIndex - 1] : currentLevel;
+      } else {
+        newLevel = currentIndex < uniqueLevels.length - 1 ? uniqueLevels[currentIndex + 1] : currentLevel;
+      }
+
+      if (newLevel === currentLevel) {
+        const message = direction === 'up' ? 'Already at highest heading level' : 'Already at lowest heading level';
+        await speak(message);
+        return { message };
+      }
+
+      return this.handleNavigateHeadings(newLevel);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await speak(`Error changing heading level: ${message}`);
+      throw error;
+    }
+  }
+
   async cleanup(): Promise<void> {
     if (this.state.browser) {
       await this.state.browser.close();
@@ -358,6 +610,8 @@ export class PageHandlers {
       this.state.page = null;
       this.state.currentUrl = null;
       this.state.currentIndex = 0;
+      this.state.navigationType = 'all';
+      this.state.headingLevel = undefined;
     }
   }
 }

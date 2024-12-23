@@ -14,6 +14,10 @@ export class WebReaderServer {
   private handlers: PageHandlers;
 
   constructor(state: NavigationState) {
+    if (process.env.MCP_DEBUG) {
+      console.error('[DEBUG] Initializing WebReaderServer');
+    }
+    
     this.handlers = new PageHandlers(state);
     this.server = new Server(
       {
@@ -28,6 +32,10 @@ export class WebReaderServer {
     );
 
     this.setupTools();
+    
+    if (process.env.MCP_DEBUG) {
+      console.error('[DEBUG] WebReaderServer initialized');
+    }
   }
 
   getServer(): Server {
@@ -35,75 +43,125 @@ export class WebReaderServer {
   }
 
   private setupTools() {
+    if (process.env.MCP_DEBUG) {
+      console.error('[DEBUG] Setting up tools');
+    }
+
     // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      _meta: {},
-      tools: [
-        {
-          name: 'navigate_to',
-          description: 'Navigate to a URL',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              url: {
-                type: 'string',
-                description: 'URL to navigate to',
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      if (process.env.MCP_DEBUG) {
+        console.error('[DEBUG] Handling tools/list request');
+      }
+      return {
+        _meta: {},
+        tools: [
+          {
+            name: 'navigate_to',
+            description: 'Navigate to a webpage (e.g., "go to [website]", "open [url]")',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                url: {
+                  type: 'string',
+                  description: 'URL to navigate to',
+                },
+              },
+              required: ['url'],
+            },
+          },
+          {
+            name: 'read_current',
+            description: 'Read current element (e.g., "read this", "what\'s this?")',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'next_element',
+            description: 'Move to next element (e.g., "next", "move forward")',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'previous_element',
+            description: 'Move to previous element (e.g., "back", "previous")',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'list_headings',
+            description: 'List all headings (e.g., "show headings", "what headings are there?")',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'find_text',
+            description: 'Search for text (e.g., "find [text]", "search for [text]")',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                text: {
+                  type: 'string',
+                  description: 'Text to search for',
+                },
+              },
+              required: ['text'],
+            },
+          },
+          {
+            name: 'navigate_landmarks',
+            description: 'Navigate by landmarks (e.g., "go to landmarks", "show landmarks")',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'navigate_headings',
+            description: 'Navigate by headings (e.g., "go to headings", "level [1-6]")',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                level: {
+                  type: 'number',
+                  description: 'Optional heading level (1-6) to filter by',
+                  minimum: 1,
+                  maximum: 6
+                },
               },
             },
-            required: ['url'],
           },
-        },
-        {
-          name: 'read_current',
-          description: 'Read current element or page content',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'next_element',
-          description: 'Move to and read next focusable element',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'previous_element',
-          description: 'Move to and read previous focusable element',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'list_headings',
-          description: 'List all headings on the page',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'find_text',
-          description: 'Find and read text on the page',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              text: {
-                type: 'string',
-                description: 'Text to search for',
+          {
+            name: 'change_heading_level',
+            description: 'Change heading level (e.g., "level up", "higher level", "level down")',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                direction: {
+                  type: 'string',
+                  description: 'Direction to move (up/down)',
+                  enum: ['up', 'down']
+                },
               },
+              required: ['direction'],
             },
-            required: ['text'],
-          },
-        },
-      ],
-    }));
+          }
+        ]
+      };
+    });
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
+      if (process.env.MCP_DEBUG) {
+        console.error(`[DEBUG] Handling tool call: ${request.params.name}`);
+      }
       try {
         const baseResponse = {
           _meta: {},
@@ -161,6 +219,46 @@ export class WebReaderServer {
               throw new McpError(ErrorCode.InvalidParams, 'Search text is required');
             }
             const result = await this.handlers.handleFindText(text);
+            return {
+              ...baseResponse,
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'navigate_landmarks': {
+            const result = await this.handlers.handleNavigateLandmarks();
+            return {
+              ...baseResponse,
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'navigate_headings': {
+            const level = request.params.arguments?.level;
+            if (level !== undefined) {
+              const numLevel = Number(level);
+              if (!Number.isInteger(numLevel) || numLevel < 1 || numLevel > 6) {
+                throw new McpError(ErrorCode.InvalidParams, 'Heading level must be between 1 and 6');
+              }
+              const result = await this.handlers.handleNavigateHeadings(numLevel);
+              return {
+                ...baseResponse,
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+              };
+            }
+            const result = await this.handlers.handleNavigateHeadings();
+            return {
+              ...baseResponse,
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'change_heading_level': {
+            const direction = request.params.arguments?.direction;
+            if (direction !== 'up' && direction !== 'down') {
+              throw new McpError(ErrorCode.InvalidParams, 'Direction must be "up" or "down"');
+            }
+            const result = await this.handlers.handleChangeHeadingLevel(direction);
             return {
               ...baseResponse,
               content: [{ type: 'text', text: JSON.stringify(result) }],

@@ -15,7 +15,8 @@ async function main() {
       browser: null,
       page: null,
       currentIndex: 0,
-      currentElement: null
+      currentElement: null,
+      navigationType: 'all'
     };
 
     // Create and start server

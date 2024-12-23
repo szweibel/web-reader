@@ -73,18 +73,37 @@ Make sure to replace `/absolute/path/to/web-reader` with the actual path where y
 
 Once configured, you can interact with Claude using natural language commands. Here are some examples:
 
-### Commands
+### Natural Voice Commands
 
-The web reader provides voice feedback for web pages through these commands:
+The web reader understands natural language commands for web navigation. Here are some examples:
 
-```
-navigate_to [url]     - Load a webpage and read its title and main content
-read_current         - Read the current element
-next_element        - Move to and read the next focusable element
-previous_element    - Move to and read the previous element
-list_headings       - List all headings on the page
-find_text [text]    - Search for specific text on the page
-```
+#### Basic Navigation
+- "Go to [website]" or "Open [url]" - Navigate to a webpage
+- "Read this" or "What's this?" - Read the current element
+- "Next" or "Move forward" - Go to next element
+- "Back" or "Previous" - Go to previous element
+- "Stop" - Stop current speech
+
+#### Page Structure
+- "Show headings" or "List headings" - List all headings on page
+- "Go to landmarks" - Switch to landmark navigation (main content, navigation, etc.)
+- "Show landmarks" - List all landmarks on page
+
+#### Heading Navigation
+- "Go to headings" - Switch to heading navigation
+- "Level [1-6]" - Filter headings by level
+- "Higher level" or "Level up" - Move to higher heading level
+- "Lower level" or "Level down" - Move to lower heading level
+
+#### Search
+- "Find [text]" or "Search for [text]" - Search for text on page
+- "Where am I?" - Get current location context
+
+The web reader will provide voice feedback for all actions and help you navigate the page structure efficiently. You can use these commands naturally in conversation with Claude, for example:
+- "Can you go to wikipedia.org and read the main content?"
+- "Find the navigation menu on this page"
+- "What headings are on this page?"
+- "Take me to the next heading"
 
 Note: The web reader operates in headless mode (no visible browser window). It extracts content from web pages and provides voice feedback through your system's text-to-speech capabilities.
 
@@ -143,6 +162,120 @@ node build/index.js
 - Look for error messages in Claude's console
 - Make sure all dependencies are installed: `npm install`
 
+## Development
+
+### Project Structure
+
+The project uses TypeScript and follows a modular architecture:
+
+- `src/`
+  - `index.ts` - Main entry point and MCP server setup
+  - `server.ts` - Web reader server implementation
+  - `handlers.ts` - Tool handlers for navigation and reading
+  - `utils.ts` - Utility functions for speech and element handling
+  - `types.ts` - TypeScript type definitions
+  - `__tests__/` - Test files
+
+### Testing
+
+The project uses Jest with comprehensive test coverage across multiple test environments:
+
+1. Server Tests (`server.test.ts`)
+   - MCP server functionality and tool registration
+   - Request/response handling and validation
+   - Server lifecycle management
+   - Error handling and recovery
+
+2. Browser Tests (`handlers.test.ts`)
+   - Page navigation and content extraction
+   - Dynamic content handling
+   - Live region updates
+   - Error scenarios and retries
+   - Accessibility descriptions
+   - Element selection and focus management
+
+3. Utility Tests (`utils.test.ts`)
+   - Speech synthesis and queue management
+   - Priority-based message handling
+   - Element description generation
+   - Dependency checks and system integration
+   - Error handling and recovery
+
+Current test coverage:
+- Statements: 75.45%
+- Branches: 76%
+- Functions: 85%
+- Lines: 74.03%
+
+Testing tools and libraries:
+- Jest: Test runner and assertion library
+- Puppeteer: Headless browser automation
+- jest-puppeteer: Browser testing integration
+- pptr-testing-library: Accessibility testing utilities
+
+The testing suite focuses on:
+1. Accessibility Features
+   - ARIA attribute handling
+   - Screen reader compatibility
+   - Keyboard navigation
+   - Focus management
+
+2. Error Handling
+   - Network failures
+   - Invalid states
+   - Resource cleanup
+   - Queue management
+
+3. Edge Cases
+   - Empty/malformed content
+   - Concurrent operations
+   - Resource limitations
+   - Timeout scenarios
+
+To run tests:
+```bash
+# Run all tests with coverage
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run specific test file
+npm test src/__tests__/utils.test.ts
+```
+
+Test files are organized by functionality:
+- `server.test.ts`: MCP server and tool tests
+- `handlers.test.ts`: Browser automation and accessibility tests
+- `utils.test.ts`: Speech synthesis and utility tests
+- `setup.ts`: Mock implementations and test helpers
+
+Each test file follows accessibility-first testing practices and includes comprehensive error handling and edge case coverage.
+
+### Test Configuration
+
+The project uses separate Jest configurations for server and browser tests:
+
+1. Server Tests:
+   - Uses `ts-jest` preset
+   - Node test environment
+   - Mocks MCP server interactions
+
+2. Browser Tests:
+   - Uses `jest-puppeteer` preset
+   - Headless browser environment
+   - Real browser interactions
+
+Configuration files:
+- `jest.config.cjs` - Main Jest configuration
+- `jest-puppeteer.config.cjs` - Puppeteer-specific settings
+
 ## Contributing
 
-Feel free to submit issues and enhancement requests!
+Feel free to submit issues and enhancement requests! When contributing code:
+
+1. Fork the repository
+2. Create a feature branch
+3. Write tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
