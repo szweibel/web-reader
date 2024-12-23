@@ -1,97 +1,75 @@
-import { Browser, ElementHandle, Page } from 'puppeteer';
+import { Browser, Page, ElementHandle } from 'puppeteer';
+import type { IpcRenderer } from 'electron';
 
-export type NavigationType = 'all' | 'landmarks' | 'headings';
-
-export interface NavigationState {
-  currentUrl: string | null;
-  browser: Browser | null;
-  page: Page | null;
-  currentIndex: number;
-  currentElement: ElementHandle | null;
-  navigationType: NavigationType;
-  headingLevel?: number; // For heading hierarchy navigation
+declare global {
+  interface Window {
+    ipcRenderer: IpcRenderer;
+  }
 }
 
-export interface LandmarkInfo {
-  role: string;
-  label?: string;
-  tag: string;
-  text?: string;
+export interface NavigationState {
+  browser: Browser | null;
+  page: Page | null;
+  currentUrl: string | null;
+  currentIndex: number;
+  navigationType: 'all' | 'headings' | 'landmarks';
+  headingLevel?: number;
+  currentElement: ElementHandle<Element> | null;
 }
 
 export interface HeadingInfo {
   level: number;
   text: string;
-  ariaLabel?: string;
-  isCurrentLevel?: boolean;
 }
 
-export interface McpResponse {
-  _meta: {
-    progressToken?: string | number;
-  };
+export interface LandmarkInfo {
+  type: string;
+  text: string;
+  role: string;
+  label?: string;
 }
 
-export interface HandlerResult extends McpResponse {
-  content: Array<{
-    type: string;
-    text: string;
-  }>;
-}
-
-export interface ListToolsResponse extends McpResponse {
-  tools: Array<{
-    name: string;
-    description?: string;
-    inputSchema: {
-      type: 'object';
-      properties?: Record<string, unknown>;
-      required?: string[];
-    };
-  }>;
+export interface MatchInfo {
+  index: number;
+  text: string;
 }
 
 export interface ToolResponse {
-  // Common fields
-  message?: string;
-  description?: string;
-
-  // Navigation response
+  description: string;
+  // Navigation info
   title?: string;
   heading?: string;
   elementCount?: number;
-  landmarks?: LandmarkInfo[];
-
-  // Element navigation response
   elementIndex?: number;
   totalElements?: number;
-  navigationType?: NavigationType;
-
-  // Heading response
+  message?: string;
+  
+  // Heading navigation
   headingCount?: number;
   headings?: HeadingInfo[];
+  navigationType?: 'all' | 'headings' | 'landmarks';
   currentHeadingLevel?: number;
-
-  // Search response
+  
+  // Landmark navigation
+  landmarks?: LandmarkInfo[];
+  
+  // Search results
   matchCount?: number;
-  matches?: Array<{
-    text: string;
-    context: string;
-    role: string;
-  }>;
+  matches?: MatchInfo[];
 }
 
-export interface ElementInfo {
-  role?: string;
-  ariaLabel?: string;
-  ariaDescribedby?: string;
-  type: string;
-  inputType?: string;
-  text: string;
-  value?: string;
-  name?: string;
-  required?: boolean;
-  disabled?: boolean;
-  expanded?: string;
-  checked?: boolean | string;
+export interface NavigationRequest {
+  currentContent: string;
+  intent: string;
 }
+
+// Re-export types used in server.ts
+export type HandlerResult = ToolResponse;
+export type ListToolsResponse = {
+  _meta: Record<string, unknown>;
+  tools: Array<{
+    name: string;
+    description: string;
+    inputSchema?: Record<string, unknown>;
+  }>;
+};

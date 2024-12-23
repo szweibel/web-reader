@@ -1,0 +1,26 @@
+{
+  "name": "web-reader-electron",
+  "version": "1.0.0",
+  "description": "Electron app for Web Reader with local LLM capabilities",
+  "main": "src/main/index.js",
+  "scripts": {
+    "copy-assets": "mkdir -p build/renderer && cp src/renderer/index.html build/renderer/",
+    "start": "npm run copy-assets && electron .",
+    "dev": "npm run start"
+  },
+  "dependencies": {
+    "@langchain/community": "^0.3.19",
+    "@langchain/core": "^0.3.26",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "electron": "^33.2.1",
+    "langchain": "^0.3.7",
+    "mcp-langchain-ts-client": "^0.0.3",
+    "node-fetch": "^2.7.0",
+    "node-llama-cpp": "^3.3.1",
+    "python-shell": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.25",
+    "typescript": "^5.4.2"
+  }
+}

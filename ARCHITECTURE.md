@@ -1,187 +1,87 @@
 # Web Reader Architecture
 
-This document explains the purpose and structure of the web-reader project, which is a Model Context Protocol (MCP) server that helps blind users navigate web pages through voice feedback. The server provides real-time navigation, interaction, and voice feedback capabilities to make web content accessible to blind users.
+This document explains the purpose and structure of the web-reader project, which is an Electron-based accessibility application that helps blind users navigate web pages through voice feedback and LLM-enhanced descriptions. The app integrates a local LLM for enhanced content understanding and navigation assistance, with an MCP server for standardized tool access.
 
 ## Project Structure
 
 ```
 web-reader/
-├── src/                    # Source code directory
-│   ├── index.ts           # Entry point and server initialization
-│   ├── server.ts          # MCP server setup and tool definitions
-│   ├── handlers.ts        # Core functionality implementations
+├── src/                    # Core MCP server source code
+│   ├── index.ts           # MCP server entry point
+│   ├── server.ts          # MCP server setup and tools
+│   ├── handlers.ts        # Core MCP functionality
 │   ├── types.ts           # TypeScript type definitions
-│   └── utils.ts           # Helper functions and utilities
-├── package.json           # Project configuration and dependencies
-├── tsconfig.json          # TypeScript configuration
+│   └── utils.ts           # Helper functions
+├── web-reader-electron/   # Electron app source code
+│   ├── src/
+│   │   ├── main/         # Main process code
+│   │   │   ├── index.ts  # Main entry point
+│   │   │   ├── llm.ts    # LLM integration
+│   │   │   └── ipc.ts    # IPC handlers
+│   │   └── renderer/     # Renderer process code
+│   ├── models/           # LLM model files
+│   └── package.json      # Electron app dependencies
+├── package.json           # MCP server dependencies
 └── README.md             # Project documentation
 ```
 
-## Core Files
+## Core Components
 
-### src/index.ts
-The entry point of the application that:
-- Initializes the MCP server
-- Sets up error handling
-- Manages server lifecycle
-- Handles cleanup on exit
+### Electron App (web-reader-electron/)
+The main application that provides:
+- Desktop UI for accessibility settings
+- Local LLM integration for enhanced understanding
+- Browser automation through Puppeteer
+- IPC system for component communication
+- Model management and optimization
 
-### src/server.ts
-Defines the MCP server configuration and tools:
-- Sets up server capabilities
-- Defines available tools and their schemas
-- Routes tool requests to appropriate handlers
-- Manages server state
+### MCP Server (src/)
+A standardized interface that:
+- Provides navigation and interaction tools
+- Communicates with the LLM for enhancements
+- Manages browser state and focus
+- Handles voice feedback
 
-### src/handlers.ts
-Contains the core functionality implementations:
-- Page navigation and analysis
-- Element focus management
-- Text-to-speech integration
-- Accessibility feature implementations
-- Browser interaction through Puppeteer
-
-### src/types.ts
-TypeScript type definitions for:
-- Navigation state management
-- Tool responses
-- Element information
-- Configuration options
-
-### src/utils.ts
-Helper functions and utilities:
-- Text-to-speech integration
-- Element description generation
-- System dependency checks
-- Browser state management
+### LLM Integration (web-reader-electron/src/main/llm.ts)
+Local language model that provides:
+- Enhanced content descriptions
+- Navigation suggestions
+- Context-aware assistance
+- Privacy-focused processing
 
 ## Key Features
 
 ### Navigation
-- Uses Puppeteer for browser control
-- Maintains focus state across elements
-- Provides context about current location
-- Supports keyboard-like navigation
+- LLM-enhanced page understanding
+- Intelligent element selection
+- Context-aware navigation
+- Voice-guided browsing
 
 ### Accessibility
-- ARIA attribute handling
-- Focus management
-- Screen reader compatibility
-- Keyboard navigation support
+- Screen reader integration
+- Keyboard navigation
+- ARIA support
+- Custom voice options
 
-### Voice Feedback
-- Text-to-speech integration
-- Context-aware descriptions
-- Priority-based speech queue
-- Interrupt support
-
-## Testing Architecture
-
-The project employs a focused, incremental testing strategy using Jest and Puppeteer. The approach prioritizes reliability and maintainability while allowing for careful expansion of test coverage.
-
-### Core Test Files
-
-Located in `src/__tests__/`:
-
-1. **browser.test.ts**
-   - Tests real browser interactions
-   - Uses example.com for consistency
-   - Verifies core navigation
-   - Tests element selection
-   - Validates content extraction
-
-2. **mcp.test.ts**
-   - Tests handler functionality
-   - Verifies error cases
-   - Tests state management
-   - Validates initialization
-
-3. **setup.ts**
-   - Provides shared test utilities
-   - Implements mocks
-   - Configures test environment
-
-### Test Implementation Strategy
-
-#### Browser Testing
-```typescript
-// Example of browser interaction test
-it('should find heading', async () => {
-  const h1 = await page.$('h1');
-  expect(h1).toBeTruthy();
-  
-  const text = await page.evaluate(el => el?.textContent || '', h1);
-  expect(text).toBe('Example Domain');
-});
-```
-
-#### Handler Testing
-```typescript
-// Example of handler error test
-it('should handle missing page', async () => {
-  const handlers = new PageHandlers({
-    currentUrl: null,
-    browser: null,
-    page: null,
-    currentIndex: 0,
-    currentElement: null,
-    navigationType: 'all'
-  });
-
-  await expect(handlers.handleReadCurrent())
-    .rejects.toThrow('No page is currently open');
-});
-```
-
-### Test Categories
-
-1. **Core Browser Tests**
-   - Navigation
-   - Element selection
-   - Content extraction
-   - Page structure
-
-2. **Handler Tests**
-   - Error handling
-   - State management
-   - Input validation
-   - Initialization
-
-### Future Test Expansion
-
-When adding new tests:
-
-1. **Start Simple**
-   - Basic functionality first
-   - Use stable test sites
-   - Focus on core features
-   - Clear test descriptions
-
-2. **Add Complexity Gradually**
-   - Error cases
-   - Edge cases
-   - Performance scenarios
-   - Integration tests
-
-3. **Consider Categories**
-   - Navigation features
-   - Accessibility features
-   - Error scenarios
-   - Performance aspects
-
-4. **Maintain Quality**
-   - Clear documentation
-   - Proper cleanup
-   - Reliable assertions
-   - TypeScript safety
+### Local Processing
+- Offline-first approach
+- Privacy protection
+- Fast response times
+- Resource optimization
 
 ## Development Guidelines
 
-### Accessibility Best Practices
-- Follow WCAG guidelines
-- Maintain proper focus management
-- Provide clear audio feedback
-- Support keyboard navigation
+### Architecture Principles
+- Keep LLM in Electron main process
+- Use MCP for standardized tool access
+- Maintain clear component boundaries
+- Optimize for accessibility
+
+### Performance
+- Lazy model loading
+- Efficient IPC communication
+- Memory management
+- Browser resource handling
 
 ### Error Handling
 - Graceful degradation
@@ -189,8 +89,78 @@ When adding new tests:
 - State recovery
 - Resource cleanup
 
-### Performance
-- Efficient DOM traversal
-- Memory management
-- Browser resource handling
-- State management
+### Testing
+- Component isolation
+- Integration testing
+- Accessibility validation
+- Performance benchmarking
+
+## Implementation Details
+
+### Electron Main Process
+```typescript
+// web-reader-electron/src/main/index.ts
+import { app, BrowserWindow } from 'electron';
+import { LLMManager } from './llm';
+import { setupIPC } from './ipc';
+
+class WebReader {
+  private window: BrowserWindow;
+  private llm: LLMManager;
+
+  async init() {
+    this.llm = new LLMManager();
+    await this.llm.init();
+    setupIPC(this.llm);
+    this.createWindow();
+  }
+}
+```
+
+### LLM Integration
+```typescript
+// web-reader-electron/src/main/llm.ts
+export class LLMManager {
+  async enhanceDescription(content: string): Promise<string> {
+    // Process content through local LLM
+    return enhancedDescription;
+  }
+
+  async suggestNavigation(content: string, intent: string): Promise<string> {
+    // Generate navigation suggestions
+    return suggestions;
+  }
+}
+```
+
+### MCP Tools
+```typescript
+// src/server.ts
+export class WebReaderServer {
+  async handleEnhanceDescription(content: string) {
+    // Request enhancement from Electron's LLM
+    return await ipcRenderer.invoke('enhance-description', content);
+  }
+
+  async handleSuggestNavigation(content: string, intent: string) {
+    // Request navigation help from Electron's LLM
+    return await ipcRenderer.invoke('suggest-navigation', { content, intent });
+  }
+}
+```
+
+## Future Development
+
+### Short Term
+- [ ] Performance optimization
+- [ ] Additional language models
+- [ ] Enhanced error recovery
+- [ ] User preferences system
+
+### Long Term
+- [ ] Custom voice synthesis
+- [ ] Plugin system
+- [ ] Multi-language support
+- [ ] Advanced navigation modes
+
+This architecture provides a robust foundation for an accessible web browsing experience, combining the power of local AI with standardized accessibility tools.

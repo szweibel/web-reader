@@ -1,176 +1,184 @@
-# Web Reader Testing Overview
+# Web Reader Testing Guide
 
-This document provides a structured overview of the testing strategy used in the Web Reader project, designed for clarity and ease of understanding.
+This guide provides essential information for testing the Web Reader MCP server, a screen reader tool that helps blind users navigate web pages through voice feedback. The testing suite focuses on accessibility features, browser interactions, and state management.
 
-## Test Files
+## Quick Start
 
-The test files are located in the `src/__tests__` directory:
+```bash
+# Run all tests
+npm test
 
-### Core Test Files
-- `browser.test.ts`: Tests real browser interactions using example.com
-- `mcp.test.ts`: Tests basic handler functionality and error cases
-- `setup.ts`: Mock implementations and shared test utilities
+# Run tests in watch mode
+npm run test:watch
 
-## Testing Strategy
-
-The project follows a focused, incremental testing approach:
-
-### 1. Core Browser Testing
-Tests use real websites (example.com) to:
-- Verify basic navigation works
-- Ensure element selection functions
-- Test content extraction
-- Validate page structure parsing
-
-Example test:
-```typescript
-it('should find heading', async () => {
-  const h1 = await page.$('h1');
-  expect(h1).toBeTruthy();
-  
-  const text = await page.evaluate(el => el?.textContent || '', h1);
-  expect(text).toBe('Example Domain');
-});
+# Run specific test file
+npm test src/__tests__/mcp.test.ts
 ```
 
-### 2. Handler Testing
-Tests focus on error cases and basic functionality:
-- Verify error handling
-- Test state management
-- Validate input validation
-- Check initialization
+## Test Structure
 
-Example test:
+### Test Files (`src/__tests__/`)
+- `browser.test.ts`: Browser interaction tests using Puppeteer
+- `mcp.test.ts`: Handler and state management tests
+- `setup.ts`: Test utilities and mocks
+
+### Test Environments
+1. Node (`mcp.test.ts`)
+   - Handler functionality
+   - State management
+   - Mock-based testing
+
+2. Browser (`browser.test.ts`)
+   - Real browser testing via Puppeteer
+   - Uses example.com as test site
+   - Accessibility verification
+
+## Core Test Areas
+
+### 1. Browser Interactions
 ```typescript
-it('should handle missing page', async () => {
-  const handlers = new PageHandlers({
-    currentUrl: null,
-    browser: null,
-    page: null,
-    currentIndex: 0,
-    currentElement: null,
-    navigationType: 'all'
+// Navigation
+await page.goto('https://example.com');
+expect(await page.title()).toBe('Example Domain');
+
+// Element Finding
+const elements = await page.$$('a[href], button, [role="button"]');
+```
+
+### 2. Handler Functionality
+```typescript
+// Element Navigation
+const result = await handlers.handleNextElement();
+expect(result.elementIndex).toBe(1);
+
+// Heading Navigation
+const headings = await handlers.handleListHeadings();
+expect(headings.length).toBeGreaterThan(0);
+```
+
+### 3. Accessibility Features
+- ARIA attributes/labels
+- Live region updates
+- Interactive states
+- Form controls
+- Heading hierarchy
+- Landmark navigation
+
+## Test Categories
+
+### 1. Navigation Tests
+- URL navigation
+- Element traversal
+- Heading navigation
+- Landmark navigation
+- Error handling
+
+### 2. Accessibility Tests
+- ARIA attributes
+- Screen reader output
+- Keyboard navigation
+- Focus management
+- Live regions
+
+### 3. Error Tests
+- Invalid URLs
+- Missing elements
+- Network errors
+- Resource cleanup
+- State recovery
+
+### 4. State Tests
+- Navigation state
+- Element selection
+- Mode switching
+- Resource management
+
+## Writing Tests
+
+### Test Structure
+```typescript
+describe('Feature', () => {
+  // Setup
+  beforeEach(() => {
+    mockPage = createMockPage();
+    handlers = new PageHandlers(initialState);
   });
 
-  await expect(handlers.handleReadCurrent())
-    .rejects.toThrow('No page is currently open');
+  // Test cases
+  it('should handle basic case', async () => {
+    const result = await handlers.someMethod();
+    expect(result).toBeDefined();
+  });
+
+  it('should handle error case', async () => {
+    await expect(handlers.someMethod())
+      .rejects.toThrow();
+  });
 });
 ```
 
-### 3. Test Environment
-Tests run in two environments:
+### Mocking Guidelines
+1. Page Methods
+```typescript
+mockPage.evaluate.mockResolvedValue('description');
+mockPage.$$.mockResolvedValue([element]);
+```
 
-1. **Node Environment** (`node`)
-   - Used for handler and utility tests
-   - Fast execution
-   - Focus on error cases
+2. Browser Events
+```typescript
+mockPage.on('console', callback);
+mockPage.evaluate(() => console.log('event'));
+```
 
-2. **Browser Environment** (`browser`)
-   - Uses Puppeteer for real browser testing
-   - Tests against example.com
-   - Verifies core functionality
-
-## Expanding Test Coverage
-
-When adding new tests:
-
-1. **Start Simple**
-   - Begin with basic functionality
-   - Use example.com when possible
-   - Focus on one feature at a time
-
-2. **Add Complexity Gradually**
-   - Start with happy paths
-   - Add error cases
-   - Consider edge cases
-   - Test accessibility features
-
-3. **Consider Test Categories**
-   - Navigation tests
-   - Element selection tests
-   - Accessibility tests
-   - Error handling tests
-   - Live region tests
-
-4. **Follow Best Practices**
-   - Keep tests focused
-   - Use clear descriptions
-   - Clean up resources
-   - Handle async properly
-   - Consider test isolation
-
-## Configuration
-
-The project uses separate Jest configurations for node and browser tests:
-
-```javascript
-module.exports = {
-  projects: [
-    {
-      displayName: 'node',
-      testEnvironment: 'node',
-      testMatch: ['**/src/__tests__/mcp.test.ts']
-    },
-    {
-      displayName: 'browser',
-      preset: 'jest-puppeteer',
-      testEnvironment: 'puppeteer',
-      testMatch: ['**/src/__tests__/browser.test.ts']
-    }
-  ]
-};
+3. Navigation State
+```typescript
+handlers = new PageHandlers({
+  currentIndex: 0,
+  navigationType: 'all'
+});
 ```
 
 ## Best Practices
 
-1. **Test Structure**
-   - One concept per test
-   - Clear test descriptions
-   - Proper setup and cleanup
-   - Handle async correctly
+### 1. Test Organization
+- One concept per test
+- Clear descriptions
+- Proper setup/cleanup
+- Async handling
 
-2. **Browser Testing**
-   - Use stable test sites
-   - Handle loading states
-   - Clean up resources
-   - Consider timeouts
+### 2. Accessibility Testing
+- Test ARIA attributes
+- Verify descriptions
+- Check state changes
+- Validate navigation
 
-3. **Error Handling**
-   - Test error cases explicitly
-   - Verify error messages
-   - Handle cleanup after errors
-   - Test timeout scenarios
+### 3. Error Handling
+- Test edge cases
+- Verify messages
+- Check recovery
+- Resource cleanup
 
-4. **Code Quality**
-   - TypeScript for type safety
-   - Proper null handling
-   - Clear assertions
-   - Meaningful test data
+### 4. State Management
+- Verify transitions
+- Test persistence
+- Handle race conditions
+- Check cleanup
 
-## Future Expansion
+## Configuration
 
-When expanding test coverage:
-
-1. **New Features**
-   - Start with basic tests
-   - Add to browser.test.ts or mcp.test.ts
-   - Consider new test files for complex features
-   - Maintain test isolation
-
-2. **Complex Scenarios**
-   - Add gradually
-   - Document assumptions
-   - Consider performance
-   - Test accessibility
-
-3. **Integration Tests**
-   - Test feature combinations
-   - Verify workflows
-   - Consider user scenarios
-   - Test real-world cases
-
-4. **Performance Tests**
-   - Add as needed
-   - Focus on critical paths
-   - Consider timeouts
-   - Test resource cleanup
+Jest configuration in `jest.config.cjs`:
+```javascript
+{
+  projects: [
+    {
+      displayName: 'node',
+      testMatch: ['**/mcp.test.ts']
+    },
+    {
+      displayName: 'browser',
+      preset: 'jest-puppeteer',
+      testMatch: ['**/browser.test.ts']
+    }
+  ]
+}
+```

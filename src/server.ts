@@ -152,6 +152,39 @@ export class WebReaderServer {
               },
               required: ['direction'],
             },
+          },
+          // Add LLM tools
+          {
+            name: 'enhance_description',
+            description: 'Generate an enhanced, accessible description of webpage content using a local LLM',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                content: {
+                  type: 'string',
+                  description: 'The webpage content to analyze',
+                },
+              },
+              required: ['content'],
+            },
+          },
+          {
+            name: 'suggest_navigation',
+            description: 'Suggest navigation actions based on user intent using a local LLM',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                intent: {
+                  type: 'string',
+                  description: 'What the user wants to do or find',
+                },
+                currentContent: {
+                  type: 'string',
+                  description: 'Current webpage content',
+                },
+              },
+              required: ['intent', 'currentContent'],
+            },
           }
         ]
       };
@@ -259,6 +292,30 @@ export class WebReaderServer {
               throw new McpError(ErrorCode.InvalidParams, 'Direction must be "up" or "down"');
             }
             const result = await this.handlers.handleChangeHeadingLevel(direction);
+            return {
+              ...baseResponse,
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'enhance_description': {
+            const content = request.params.arguments?.content;
+            if (!content || typeof content !== 'string') {
+              throw new McpError(ErrorCode.InvalidParams, 'Content is required');
+            }
+            const result = await this.handlers.handleEnhanceDescription(content);
+            return {
+              ...baseResponse,
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'suggest_navigation': {
+            const { intent, currentContent } = request.params.arguments || {};
+            if (!intent || typeof intent !== 'string' || !currentContent || typeof currentContent !== 'string') {
+              throw new McpError(ErrorCode.InvalidParams, 'Intent and currentContent are required');
+            }
+            const result = await this.handlers.handleSuggestNavigation(currentContent, intent);
             return {
               ...baseResponse,
               content: [{ type: 'text', text: JSON.stringify(result) }],

@@ -124,47 +124,144 @@ describe('Web Reader Handlers', () => {
       const result = await handlers.handlePreviousElement();
       expect(result.message).toBe('At start of page');
     });
+
+    it('should provide accessible descriptions for elements', async () => {
+      mockPage.evaluate.mockResolvedValueOnce('Submit form button. This button submits the contact form');
+
+      const result = await handlers.handleReadCurrent();
+      expect(result.description).toBe('Submit form button. This button submits the contact form');
+    });
+
+    it('should handle live region updates', async () => {
+      mockPage.evaluate.mockResolvedValueOnce('Alert: Form submitted successfully');
+
+      const result = await handlers.handleReadCurrent();
+      expect(result.description).toBe('Alert: Form submitted successfully');
+    });
+
+    it('should handle ARIA expanded states', async () => {
+      mockPage.evaluate.mockResolvedValueOnce('Main menu button (expanded)');
+
+      const result = await handlers.handleReadCurrent();
+      expect(result.description).toBe('Main menu button (expanded)');
+    });
+
+    it('should handle interactive element states', async () => {
+      mockPage.evaluate.mockResolvedValueOnce('Newsletter subscription checkbox (checked)');
+
+      const result = await handlers.handleReadCurrent();
+      expect(result.description).toBe('Newsletter subscription checkbox (checked)');
+    });
+
+    it('should provide context for form controls', async () => {
+      mockPage.evaluate.mockResolvedValueOnce('Email address textbox (required): Enter your email');
+
+      const result = await handlers.handleReadCurrent();
+      expect(result.description).toBe('Email address textbox (required): Enter your email');
+    });
   });
 
   describe('Heading Navigation', () => {
     beforeEach(() => {
       mockPage.evaluate.mockResolvedValue([
-        { level: 1, text: 'Main Heading', ariaLabel: null },
-        { level: 2, text: 'Subheading 1', ariaLabel: null },
-        { level: 2, text: 'Subheading 2', ariaLabel: null }
+        { level: 1, text: 'Main Heading', ariaLabel: 'Welcome to our site' },
+        { level: 2, text: 'Subheading 1', ariaLabel: 'About us section' },
+        { level: 2, text: 'Subheading 2', ariaLabel: 'Contact information' },
+        { level: 3, text: 'Sub-subheading', ariaLabel: 'Office locations' }
       ]);
     });
 
     it('should list headings', async () => {
+      mockPage.evaluate.mockResolvedValue([
+        { level: 1, text: 'Main Heading', ariaLabel: 'Welcome to our site' },
+        { level: 2, text: 'Subheading 1', ariaLabel: 'About us section' },
+        { level: 2, text: 'Subheading 2', ariaLabel: 'Contact information' },
+        { level: 3, text: 'Sub-subheading', ariaLabel: 'Office locations' }
+      ]);
+
       const result = await handlers.handleListHeadings();
 
-      expect(result.headingCount).toBe(3);
+      expect(result.headingCount).toBe(4);
       expect(result.headings).toBeDefined();
       if (result.headings) {
         expect(result.headings[0].level).toBe(1);
-        expect(result.headings[0].text).toBe('Main Heading');
+        expect(result.headings[0].text).toBe('Welcome to our site');
       }
     });
 
     it('should navigate headings by level', async () => {
       mockPage.$$.mockResolvedValue([{} as ElementHandle<Element>]);
+      
+      // Mock the evaluate call for getting heading info
       mockPage.evaluate.mockResolvedValueOnce({ 
         level: 2, 
-        text: 'Subheading', 
+        text: 'About us section', 
         ariaLabel: null 
-      } as { level: number; text: string; ariaLabel: string | null });
+      });
+      
+      // Mock the evaluate call for getting description
+      mockPage.evaluate.mockResolvedValueOnce('Level 2 heading: About us section');
 
       const result = await handlers.handleNavigateHeadings(2);
 
       expect(result.navigationType).toBe('headings');
       expect(result.currentHeadingLevel).toBe(2);
+      expect(result.description).toContain('Switched to level 2 headings');
+      expect(result.description).toContain('About us section');
     });
 
     it('should handle no headings found', async () => {
-      mockPage.evaluate.mockResolvedValue([] as Array<{ level: number; text: string; ariaLabel: string | null }>);
+      mockPage.evaluate.mockResolvedValue([]);
 
       const result = await handlers.handleListHeadings();
       expect(result.message).toBe('No headings found on page');
+    });
+
+    it('should navigate heading hierarchy', async () => {
+      mockPage.$$.mockResolvedValue([{} as ElementHandle<Element>]);
+      
+      // Navigate to level 2 heading
+      mockPage.evaluate
+        .mockResolvedValueOnce({ level: 2, text: 'About us section', ariaLabel: null })
+        .mockResolvedValueOnce('Level 2 heading: About us section');
+
+      let result = await handlers.handleNavigateHeadings(2);
+      expect(result.description).toContain('About us section');
+
+      // Mock focusable elements for next element
+      mockPage.$$.mockResolvedValueOnce([
+        {} as ElementHandle<Element>,
+        {} as ElementHandle<Element>
+      ]);
+
+      // Navigate to child heading (level 3)
+      mockPage.evaluate
+        .mockResolvedValueOnce('Level 3 heading: Office locations');
+
+      result = await handlers.handleNextElement();
+      expect(result.description).toBe('Level 3 heading: Office locations');
+    });
+
+    it('should announce heading level changes', async () => {
+      mockPage.$$.mockResolvedValue([{} as ElementHandle<Element>]);
+      
+      // Start at level 1
+      mockPage.evaluate
+        .mockResolvedValueOnce({ level: 1, text: 'Main Heading', ariaLabel: 'Welcome to our site' })
+        .mockResolvedValueOnce('Level 1 heading: Welcome to our site');
+
+      let result = await handlers.handleNavigateHeadings(1);
+      expect(result.description).toContain('Switched to level 1 headings');
+      expect(result.description).toContain('Welcome to our site');
+
+      // Move to level 2
+      mockPage.evaluate
+        .mockResolvedValueOnce({ level: 2, text: 'Subheading 1', ariaLabel: 'About us section' })
+        .mockResolvedValueOnce('Level 2 heading: About us section');
+
+      result = await handlers.handleNavigateHeadings(2);
+      expect(result.description).toContain('Switched to level 2 headings');
+      expect(result.description).toContain('About us section');
     });
   });
 
