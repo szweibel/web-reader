@@ -15,12 +15,45 @@ from bs4 import BeautifulSoup
 import time
 
 # Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Create formatters
+detailed_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+simple_formatter = logging.Formatter(
+    '%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%H:%M:%S'
 )
-logger = logging.getLogger(__name__)
+
+# Create file handlers with proper file modes
+debug_handler = logging.FileHandler('logs/debug.log', mode='w', encoding='utf-8')
+debug_handler.setLevel(logging.DEBUG)
+debug_handler.setFormatter(detailed_formatter)
+
+info_handler = logging.FileHandler('logs/info.log', mode='w', encoding='utf-8')
+info_handler.setLevel(logging.INFO)
+info_handler.setFormatter(simple_formatter)
+
+error_handler = logging.FileHandler('logs/error.log', mode='w', encoding='utf-8')
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(detailed_formatter)
+
+# Ensure logger is not propagating to avoid duplicate logs
+logger.propagate = False
+
+# Create console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(simple_formatter)
+
+# Add handlers to logger
+logger.addHandler(debug_handler)
+logger.addHandler(info_handler)
+logger.addHandler(error_handler)
+logger.addHandler(console_handler)
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -44,27 +77,51 @@ def get_focusable_elements(driver):
 
 def get_landmarks_and_anchors(driver):
     """Get all ARIA landmarks and anchor points"""
+    seen_elements = set()  # Track elements we've already added
     landmarks = []
+    
+    def add_landmark(elem, desc_prefix, text=None):
+        """Helper to add landmark if not already seen"""
+        if elem not in seen_elements and elem.is_displayed():
+            text = text or elem.text.strip()
+            if text:
+                seen_elements.add(elem)
+                landmarks.append((elem, f"{desc_prefix}: {text[:100]}"))
     
     # Find elements with ARIA roles
     for role in ["banner", "complementary", "contentinfo", "form", "main", "navigation", "region", "search"]:
         elements = driver.find_elements(By.CSS_SELECTOR, f"[role='{role}']")
         for elem in elements:
-            if elem.is_displayed():
-                text = elem.text.strip()
-                if text:
-                    landmarks.append((elem, f"{role}: {text[:100]}"))
+            add_landmark(elem, role)
     
     # Find elements with standard HTML5 landmark tags
     for tag in ["header", "nav", "main", "aside", "footer", "form", "section"]:
         elements = driver.find_elements(By.TAG_NAME, tag)
         for elem in elements:
-            if elem.is_displayed():
-                text = elem.text.strip()
-                if text:
-                    landmarks.append((elem, f"{tag}: {text[:100]}"))
+            add_landmark(elem, tag)
+    
+    # Add headings as landmarks
+    for level in range(1, 7):
+        elements = driver.find_elements(By.TAG_NAME, f"h{level}")
+        for elem in elements:
+            add_landmark(elem, f"heading {level}")
+    
+    # Add elements with aria-label or title
+    elements = driver.find_elements(By.CSS_SELECTOR, "[aria-label], [title]")
+    for elem in elements:
+        label = elem.get_attribute("aria-label") or elem.get_attribute("title")
+        if label:
+            add_landmark(elem, "labeled section", label)
+    
+    # Add div elements with specific class names
+    section_classes = ["section", "content", "main", "header", "footer", "nav"]
+    for class_name in section_classes:
+        elements = driver.find_elements(By.CSS_SELECTOR, f"div[class*='{class_name}' i]")
+        for elem in elements:
+            add_landmark(elem, "section")
     
     return landmarks
+
 
 def setup_browser():
     """Initialize headless Chrome browser"""
@@ -243,38 +300,90 @@ def read_page(state: State):
 def click_element(state: State):
     """Click an element on the page"""
     logger.debug("Entering click_element")
-    element_desc = state["action_context"]
+    element_desc = state["action_context"].lower()
     logger.debug(f"Looking for element: {element_desc}")
     
-    # Try exact matches first
-    strategies = [
+    def find_clickable(element):
+        """Check if element or its children are clickable"""
+        # Check if element itself is clickable
+        if element.tag_name in ['a', 'button'] or element.get_attribute('onclick') or element.get_attribute('role') in ['button', 'link']:
+            return element
+        
+        # Check children
+        clickable = element.find_elements(By.CSS_SELECTOR, 'a, button, [onclick], [role="button"], [role="link"]')
+        return next((e for e in clickable if e.is_displayed() and element_desc in e.text.lower()), None)
+    
+    def is_navigation_element(element):
+        """Check if element is in navigation area"""
+        try:
+            # Check if element or its parents are navigation elements
+            current = element
+            for _ in range(3):  # Check up to 3 levels up
+                if current.tag_name in ['nav', 'header'] or current.get_attribute('role') in ['navigation', 'banner']:
+                    return True
+                parent = state["driver"].execute_script("return arguments[0].parentElement;", current)
+                if not parent:
+                    break
+                current = parent
+            return False
+        except:
+            return False
+    
+    # First try navigation elements
+    nav_strategies = [
+        (By.XPATH, f"//nav//a[translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
+        (By.XPATH, f"//header//a[translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
+        (By.XPATH, f"//*[@role='navigation']//a[translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
+        (By.XPATH, f"//nav//*[contains(translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{element_desc}')]"),
+        (By.XPATH, f"//header//*[contains(translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{element_desc}')]")
+    ]
+    
+    # Then try general clickable elements
+    general_strategies = [
         (By.LINK_TEXT, element_desc),
-        (By.XPATH, f"//a[normalize-space()='{element_desc}']"),
-        (By.XPATH, f"//button[normalize-space()='{element_desc}']"),
-        (By.XPATH, f"//*[@role='button' and normalize-space()='{element_desc}']"),
-        (By.XPATH, f"//*[@role='link' and normalize-space()='{element_desc}']")
-    ]
-    
-    # Then try partial matches
-    partial_strategies = [
+        (By.XPATH, f"//a[translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
+        (By.XPATH, f"//button[translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
+        (By.XPATH, f"//*[@role='button' and translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
+        (By.XPATH, f"//*[@role='link' and translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{element_desc}']"),
         (By.PARTIAL_LINK_TEXT, element_desc),
-        (By.XPATH, f"//*[contains(normalize-space(), '{element_desc}') and (@onclick or @role='button' or @role='link' or name()='a' or name()='button')]")
+        (By.XPATH, f"//*[contains(translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{element_desc}')]")
     ]
     
-    for by, value in strategies + partial_strategies:
+    # Try navigation elements first
+    for by, value in nav_strategies:
         try:
             elements = state["driver"].find_elements(by, value)
-            visible_elements = [e for e in elements if e.is_displayed()]
-            if visible_elements:
-                element = visible_elements[0]
-                state["driver"].execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-                time.sleep(0.5)
-                element.click()
-                time.sleep(1)
-                return {
-                    "messages": [{"role": "assistant", "content": f"Clicked element: '{element.text or element_desc}'. Would you like me to read the updated content?"}],
-                    "next": None
-                }
+            for element in elements:
+                if element.is_displayed() and is_navigation_element(element):
+                    clickable = find_clickable(element)
+                    if clickable:
+                        state["driver"].execute_script("arguments[0].scrollIntoView({block: 'center'});", clickable)
+                        time.sleep(0.5)
+                        clickable.click()
+                        time.sleep(1)
+                        return {
+                            "messages": [{"role": "assistant", "content": f"Clicked navigation element: '{clickable.text or element_desc}'. Would you like me to read the updated content?"}],
+                            "next": None
+                        }
+        except Exception as e:
+            continue
+    
+    # Then try general clickable elements
+    for by, value in general_strategies:
+        try:
+            elements = state["driver"].find_elements(by, value)
+            for element in elements:
+                if element.is_displayed():
+                    clickable = find_clickable(element)
+                    if clickable:
+                        state["driver"].execute_script("arguments[0].scrollIntoView({block: 'center'});", clickable)
+                        time.sleep(0.5)
+                        clickable.click()
+                        time.sleep(1)
+                        return {
+                            "messages": [{"role": "assistant", "content": f"Clicked element: '{clickable.text or element_desc}'. Would you like me to read the updated content?"}],
+                            "next": None
+                        }
         except Exception as e:
             continue
     
@@ -532,18 +641,12 @@ for action_name, node_name in VALID_ACTIONS.items():
 # Add determine_action node that uses Command to specify next node
 workflow.add_node("determine_action", determine_action)
 
-# Set up Command-based routing
-workflow.add_edge("determine_action", "navigate")
-workflow.add_edge("determine_action", "read_page")
-workflow.add_edge("determine_action", "click_element")
-workflow.add_edge("determine_action", "check_element")
-workflow.add_edge("determine_action", "list_headings")
-workflow.add_edge("determine_action", "find_text")
-workflow.add_edge("determine_action", "next_element")
-workflow.add_edge("determine_action", "prev_element")
-workflow.add_edge("determine_action", "list_landmarks")
-workflow.add_edge("determine_action", "goto_landmark")
-workflow.add_edge("determine_action", "read_section")
+# Add conditional edges for all actions at once
+workflow.add_conditional_edges(
+    "determine_action",
+    lambda x: x.get("next"),
+    {action: action for action in VALID_ACTIONS.values()}
+)
 
 # Set entry point and compile
 workflow.set_entry_point("determine_action")
