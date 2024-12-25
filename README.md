@@ -1,105 +1,86 @@
 # Web Reader
 
-A screen reader application that helps blind users navigate web pages through voice feedback and LLM-enhanced descriptions using node-llama-cpp.
+A screen reader application that helps users navigate web pages through natural language commands and LLM-enhanced descriptions. Built with LangGraph for intelligent flow control and Selenium for web automation.
+
+## Features
+
+- Natural language command processing using local LLMs
+- Intelligent navigation with LangGraph state management
+- ARIA landmark and semantic structure analysis
+- Focusable element navigation
+- Content summarization and search
+- Cross-platform support
+- Privacy-focused (all processing happens locally)
 
 ## Prerequisites
 
-- Node.js and npm
-- System text-to-speech support (built into macOS, Windows, and most Linux distributions)
-- Chrome/Chromium (will be installed automatically by Puppeteer if needed)
+- Python 3.10 or higher
+- Chrome/Chromium (will be installed automatically by Selenium)
+- Ollama for local LLM processing
 
 ## Installation
-
-### 1. System Dependencies
-
-The text-to-speech capabilities are handled automatically by your operating system:
-- macOS: Uses built-in 'say' command (no installation needed)
-- Windows: Uses built-in SAPI (no installation needed)
-- Linux: Uses Festival (will be installed automatically if needed)
-
-Puppeteer will download and manage its own Chrome binary, so you don't need to install Chrome/Chromium separately.
-
-### 2. Install Web Reader
 
 ```bash
 # Clone the repository
 git clone /path/to/web-reader
 cd web-reader
 
-# Install dependencies and build
-npm install
-npm run build
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
-
-### 3. Download LLM Model
-
-The application uses the Llama-3.2-3B-Instruct-Q6_K model for local processing. You'll need to download this model and place it in the `models/` directory.
 
 ## Usage
 
-The web reader provides several chat functions for web navigation and accessibility:
+The web reader provides a natural language interface for web navigation and accessibility. Start the application:
 
-### Available Functions
-
-#### Basic Navigation
-- `readCurrent`: Read the current element or page content
-- `nextElement`: Move to and read the next focusable element
-- `previousElement`: Move to and read the previous focusable element
-
-#### Page Structure
-- `listHeadings`: List all headings on the page
-
-#### Search
-- `findText`: Find and read text on the page
-
-Each function takes a URL parameter to specify which page to interact with, and some functions (like `findText`) take additional parameters for their specific functionality.
-
-## Features
-
-- Local LLM processing using node-llama-cpp
-- Voice feedback using system text-to-speech
-- Page structure analysis (headings, landmarks)
-- Text search functionality
-- Focusable element navigation
-- Cross-platform support
-- Privacy-focused (all processing happens locally)
-
-## Troubleshooting
-
-If you encounter issues with the web reader, try these steps:
-
-1. Verify the build:
 ```bash
-cd web-reader
-npm run build
+python another.py
 ```
 
-2. Check the model:
-- Ensure the Llama model is downloaded and placed in the correct directory
-- Verify the model path in the configuration
+### Example Commands
 
-3. Test the LLM:
-```bash
-cd web-reader
-node test-llm-simple.mjs
-```
+#### Navigation
+- "Go to example.com"
+- "Next element"
+- "Previous element"
+- "Go to main content"
 
-4. Common issues and solutions:
+#### Reading
+- "Read the page"
+- "Read this section"
+- "List headings"
+- "List landmarks"
 
-- **Model loading fails:**
-  - Check if the model file exists in the correct location
-  - Verify file permissions
-  - Ensure enough system memory is available
+#### Interaction
+- "Click the login button"
+- "Type my email test@example.com into the email field"
+- "Find text about pricing"
+- "Is this a clickable element?"
 
-- **No voice feedback:**
-  - On macOS: No setup needed, uses system 'say' command
-  - On Windows: No setup needed, uses system SAPI
-  - On Linux: Install festival if needed
+## Architecture
 
-- **Content extraction fails:**
-  - Let Puppeteer manage its own Chrome binary
-  - Check network connectivity
-  - Verify the URL is accessible
+The application uses a three-tier architecture:
+
+1. **LLM Interface (LangChain)**
+   - Natural language understanding
+   - Command interpretation
+   - Context management
+
+2. **Action Graph (LangGraph)**
+   - State machine for flow control
+   - Action execution
+   - Error handling
+
+3. **Browser Interface (Selenium)**
+   - Web page automation
+   - Content extraction
+   - Element interaction
+
+For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Development
 
@@ -107,56 +88,48 @@ node test-llm-simple.mjs
 
 ```
 web-reader/
-├── llm/                   # LLM integration
-│   └── reader.mjs        # Core chat function implementations
-├── main/                 # Main process code
-│   ├── download-model.js # Model download utility
-│   ├── index.js         # Main entry point
-│   ├── ipc.js           # IPC handlers
-│   └── llm.js           # LLM integration
-├── models/               # LLM model files
-├── renderer/             # Renderer process code
-│   └── index.html       # Main UI
-├── src/                 # Source code
-│   └── __tests__/      # Test files
-└── types/               # TypeScript type definitions
+├── another.py          # Main application
+├── ARCHITECTURE.md     # Architecture documentation
+├── README.md          # Project documentation
+├── requirements.txt   # Python dependencies
+└── venv/             # Virtual environment
 ```
 
 ### Testing
 
-The project uses Jest for testing:
+Run the test suite:
 
-1. Chat Function Tests
-   - Function registration and validation
-   - Parameter handling
-   - Error scenarios
-   - Response formatting
-
-2. Browser Tests
-   - Page navigation and content extraction
-   - Dynamic content handling
-   - Error scenarios and retries
-
-3. Integration Tests
-   - End-to-end workflow testing
-   - System integration
-   - Performance testing
-
-To run tests:
 ```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
+pytest
 ```
 
-## Contributing
-
-Feel free to submit issues and enhancement requests! When contributing code:
+### Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Write tests for new functionality
 4. Ensure all tests pass
 5. Submit a pull request
+
+## Troubleshooting
+
+### Common Issues
+
+1. **LLM Issues**
+   - Ensure Ollama is running
+   - Check model availability
+   - Verify JSON parsing
+
+2. **Browser Issues**
+   - Let Selenium manage Chrome
+   - Check network connectivity
+   - Verify page accessibility
+
+3. **State Management**
+   - Check state transitions
+   - Verify action context
+   - Monitor error handling
+
+## License
+
+MIT License - see LICENSE file for details
