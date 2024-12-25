@@ -11,8 +11,8 @@
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
     "resolveJsonModule": true,
-    "types": ["jest", "node", "puppeteer", "expect-puppeteer"]
+    "types": ["node", "puppeteer"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "src/__tests__"],
   "exclude": ["node_modules"]
 }

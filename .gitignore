@@ -2,8 +2,9 @@
 node_modules/
 
 # Model files
-web-reader-electron/models/*
-web-reader-electron/src/models/*
+web-reader/models/*
+web-reader/src/models/*
+models/*
 
 # macOS files
 .DS_Store

@@ -2,24 +2,19 @@
 
 ## Current Progress
 
-### Electron App Development
-Basic desktop application with LLM and MCP server integration.
+### Core Components
+Basic application with node-llama-cpp and chat function integration.
 
 #### Completed Components
-- [x] Electron main process setup
+- [x] Main Process Setup
   - [x] Window management
-  - [x] Basic IPC system
-  - [x] Basic error handling
+  - [x] IPC system
+  - [x] Error handling
 
 - [x] LLM Integration
   - [x] Model initialization
-  - [x] Basic prompt templates
+  - [x] Basic chat functions
   - [x] Error handling
-
-- [x] MCP Server Integration
-  - [x] Server process management
-  - [x] Basic IPC communication
-  - [x] Tool routing
 
 - [x] Basic UI
   - [x] URL input
@@ -29,25 +24,35 @@ Basic desktop application with LLM and MCP server integration.
 ## Next Steps
 
 ### High Priority
-1. Testing & Debugging
+1. Chat Function Implementation
+   - [ ] Implement listHeadings handler
+   - [ ] Implement readCurrent handler
+   - [ ] Implement nextElement handler
+   - [ ] Implement previousElement handler
+   - [ ] Implement findText handler
+
+2. Testing & Debugging
    - [ ] Test URL navigation with real websites
-   - [ ] Test LLM content enhancement
+   - [ ] Test chat function responses
    - [ ] Test screen reader compatibility
    - [ ] Fix any IPC communication issues
+   - [ ] Test chat function integration
 
-2. Enhanced LLM Features
-   - [ ] Improve prompt templates
+3. Enhanced LLM Features
+   - [ ] Improve chat function responses
    - [ ] Add memory management
    - [ ] Optimize performance
    - [ ] Add error recovery
+   - [ ] Enhance chat capabilities
 
-3. UI Improvements
+4. UI Improvements
    - [ ] Add settings interface
    - [ ] Improve status indicators
    - [ ] Better error messages
    - [ ] Enhanced navigation controls
+   - [ ] Chat function status display
 
-4. Accessibility Enhancements
+5. Accessibility Enhancements
    - [ ] Improve keyboard navigation
    - [ ] Add more ARIA labels
    - [ ] Test with screen readers
@@ -60,21 +65,25 @@ Basic desktop application with LLM and MCP server integration.
 - [ ] Memory optimization
 - [ ] Process management
 - [ ] Resource caching
+- [ ] Chat function performance tuning
 
 ### Features
 - [ ] Custom voice options
 - [ ] Language support
 - [ ] User preferences
 - [ ] Plugin system
+- [ ] Enhanced chat capabilities
 
 ### Documentation
 - [ ] User guide
 - [ ] API documentation
 - [ ] Development guide
-- [ ] Architecture details
+- [ ] Chat function documentation
+- [ ] Integration guide
 
 ### Accessibility
 - [ ] Screen reader optimization
 - [ ] Keyboard shortcuts
 - [ ] Voice commands
 - [ ] Custom navigation modes
+- [ ] Enhanced descriptions via chat functions

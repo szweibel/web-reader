@@ -1,6 +1,6 @@
-# Web Reader MCP Server
+# Web Reader
 
-A screen reader server that helps blind users navigate web pages through voice feedback.
+A screen reader application that helps blind users navigate web pages through voice feedback and LLM-enhanced descriptions using node-llama-cpp.
 
 ## Prerequisites
 
@@ -31,121 +31,65 @@ npm install
 npm run build
 ```
 
-### 3. Configure Claude
+### 3. Download LLM Model
 
-You need to add the web reader to your Claude configuration. The location depends on which Claude client you're using:
-
-#### For VSCode Extension (Cline)
-Add to `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`:
-```json
-{
-  "mcpServers": {
-    "web-reader": {
-      "command": "node",
-      "args": ["/absolute/path/to/web-reader/build/index.js"],
-      "env": {}
-    }
-  }
-}
-```
-
-#### For Claude Desktop App
-Add to:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "web-reader": {
-      "command": "node",
-      "args": ["/absolute/path/to/web-reader/build/index.js"],
-      "env": {}
-    }
-  }
-}
-```
-
-Make sure to replace `/absolute/path/to/web-reader` with the actual path where you cloned the repository.
+The application uses the Llama-3.2-3B-Instruct-Q6_K model for local processing. You'll need to download this model and place it in the `models/` directory.
 
 ## Usage
 
-Once configured, you can interact with Claude using natural language commands. Here are some examples:
+The web reader provides several chat functions for web navigation and accessibility:
 
-### Natural Voice Commands
-
-The web reader understands natural language commands for web navigation. Here are some examples:
+### Available Functions
 
 #### Basic Navigation
-- "Go to [website]" or "Open [url]" - Navigate to a webpage
-- "Read this" or "What's this?" - Read the current element
-- "Next" or "Move forward" - Go to next element
-- "Back" or "Previous" - Go to previous element
-- "Stop" - Stop current speech
+- `readCurrent`: Read the current element or page content
+- `nextElement`: Move to and read the next focusable element
+- `previousElement`: Move to and read the previous focusable element
 
 #### Page Structure
-- "Show headings" or "List headings" - List all headings on page
-- "Go to landmarks" - Switch to landmark navigation (main content, navigation, etc.)
-- "Show landmarks" - List all landmarks on page
-
-#### Heading Navigation
-- "Go to headings" - Switch to heading navigation
-- "Level [1-6]" - Filter headings by level
-- "Higher level" or "Level up" - Move to higher heading level
-- "Lower level" or "Level down" - Move to lower heading level
+- `listHeadings`: List all headings on the page
 
 #### Search
-- "Find [text]" or "Search for [text]" - Search for text on page
-- "Where am I?" - Get current location context
+- `findText`: Find and read text on the page
 
-The web reader will provide voice feedback for all actions and help you navigate the page structure efficiently. You can use these commands naturally in conversation with Claude, for example:
-- "Can you go to wikipedia.org and read the main content?"
-- "Find the navigation menu on this page"
-- "What headings are on this page?"
-- "Take me to the next heading"
-
-Note: The web reader operates in headless mode (no visible browser window). It extracts content from web pages and provides voice feedback through your system's text-to-speech capabilities.
+Each function takes a URL parameter to specify which page to interact with, and some functions (like `findText`) take additional parameters for their specific functionality.
 
 ## Features
 
-- Headless web page content extraction
+- Local LLM processing using node-llama-cpp
 - Voice feedback using system text-to-speech
 - Page structure analysis (headings, landmarks)
 - Text search functionality
 - Focusable element navigation
 - Cross-platform support
-- Works with both Claude VSCode extension and desktop app
+- Privacy-focused (all processing happens locally)
 
 ## Troubleshooting
 
 If you encounter issues with the web reader, try these steps:
 
-1. Verify the server is built correctly:
+1. Verify the build:
 ```bash
 cd web-reader
 npm run build
-# Should create build/index.js and other files
 ```
 
-2. Check the configuration file:
-- Make sure you're using absolute paths
-- Double-check the path to build/index.js exists
-- Ensure there are no syntax errors in the JSON
+2. Check the model:
+- Ensure the Llama model is downloaded and placed in the correct directory
+- Verify the model path in the configuration
 
-3. Test the server directly:
+3. Test the LLM:
 ```bash
 cd web-reader
-node build/index.js
-# Should show: "Web Reader MCP server running on stdio"
+node test-llm-simple.mjs
 ```
 
 4. Common issues and solutions:
 
-- **"MCP server disconnected" error:**
-  - Restart Claude/VSCode after changing configuration
-  - Check if the server process is running
-  - Verify the path in your configuration is correct
+- **Model loading fails:**
+  - Check if the model file exists in the correct location
+  - Verify file permissions
+  - Ensure enough system memory is available
 
 - **No voice feedback:**
   - On macOS: No setup needed, uses system 'say' command
@@ -157,118 +101,55 @@ node build/index.js
   - Check network connectivity
   - Verify the URL is accessible
 
-5. Still having issues?
-- Check the terminal output where you ran the server
-- Look for error messages in Claude's console
-- Make sure all dependencies are installed: `npm install`
-
 ## Development
 
 ### Project Structure
 
-The project uses TypeScript and follows a modular architecture:
-
-- `src/`
-  - `index.ts` - Main entry point and MCP server setup
-  - `server.ts` - Web reader server implementation
-  - `handlers.ts` - Tool handlers for navigation and reading
-  - `utils.ts` - Utility functions for speech and element handling
-  - `types.ts` - TypeScript type definitions
-  - `__tests__/` - Test files
+```
+web-reader/
+├── llm/                   # LLM integration
+│   └── reader.mjs        # Core chat function implementations
+├── main/                 # Main process code
+│   ├── download-model.js # Model download utility
+│   ├── index.js         # Main entry point
+│   ├── ipc.js           # IPC handlers
+│   └── llm.js           # LLM integration
+├── models/               # LLM model files
+├── renderer/             # Renderer process code
+│   └── index.html       # Main UI
+├── src/                 # Source code
+│   └── __tests__/      # Test files
+└── types/               # TypeScript type definitions
+```
 
 ### Testing
 
-The project uses Jest with comprehensive test coverage across multiple test environments:
+The project uses Jest for testing:
 
-1. Server Tests (`server.test.ts`)
-   - MCP server functionality and tool registration
-   - Request/response handling and validation
-   - Server lifecycle management
-   - Error handling and recovery
+1. Chat Function Tests
+   - Function registration and validation
+   - Parameter handling
+   - Error scenarios
+   - Response formatting
 
-2. Browser Tests (`handlers.test.ts`)
+2. Browser Tests
    - Page navigation and content extraction
    - Dynamic content handling
-   - Live region updates
    - Error scenarios and retries
-   - Accessibility descriptions
-   - Element selection and focus management
 
-3. Utility Tests (`utils.test.ts`)
-   - Speech synthesis and queue management
-   - Priority-based message handling
-   - Element description generation
-   - Dependency checks and system integration
-   - Error handling and recovery
-
-Current test coverage:
-- Statements: 75.45%
-- Branches: 76%
-- Functions: 85%
-- Lines: 74.03%
-
-Testing tools and libraries:
-- Jest: Test runner and assertion library
-- Puppeteer: Headless browser automation
-- jest-puppeteer: Browser testing integration
-- pptr-testing-library: Accessibility testing utilities
-
-The testing suite focuses on:
-1. Accessibility Features
-   - ARIA attribute handling
-   - Screen reader compatibility
-   - Keyboard navigation
-   - Focus management
-
-2. Error Handling
-   - Network failures
-   - Invalid states
-   - Resource cleanup
-   - Queue management
-
-3. Edge Cases
-   - Empty/malformed content
-   - Concurrent operations
-   - Resource limitations
-   - Timeout scenarios
+3. Integration Tests
+   - End-to-end workflow testing
+   - System integration
+   - Performance testing
 
 To run tests:
 ```bash
-# Run all tests with coverage
+# Run all tests
 npm test
 
 # Run tests in watch mode
 npm run test:watch
-
-# Run specific test file
-npm test src/__tests__/utils.test.ts
 ```
-
-Test files are organized by functionality:
-- `server.test.ts`: MCP server and tool tests
-- `handlers.test.ts`: Browser automation and accessibility tests
-- `utils.test.ts`: Speech synthesis and utility tests
-- `setup.ts`: Mock implementations and test helpers
-
-Each test file follows accessibility-first testing practices and includes comprehensive error handling and edge case coverage.
-
-### Test Configuration
-
-The project uses separate Jest configurations for server and browser tests:
-
-1. Server Tests:
-   - Uses `ts-jest` preset
-   - Node test environment
-   - Mocks MCP server interactions
-
-2. Browser Tests:
-   - Uses `jest-puppeteer` preset
-   - Headless browser environment
-   - Real browser interactions
-
-Configuration files:
-- `jest.config.cjs` - Main Jest configuration
-- `jest-puppeteer.config.cjs` - Puppeteer-specific settings
 
 ## Contributing
 
