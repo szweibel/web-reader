@@ -1,86 +1,98 @@
 # Web Reader
 
-A screen reader application that helps users navigate web pages through natural language commands and LLM-enhanced descriptions. Built with LangGraph for intelligent flow control and Selenium for web automation.
+A natural language screen reader that helps users navigate and understand web content through conversation, powered by local LLMs and browser automation.
 
 ## Features
 
-- Natural language command processing using local LLMs
-- Intelligent navigation with LangGraph state management
-- ARIA landmark and semantic structure analysis
-- Focusable element navigation
-- Content summarization and search
-- Cross-platform support
-- Privacy-focused (all processing happens locally)
-
-## Prerequisites
-
-- Python 3.10 or higher
-- Chrome/Chromium (will be installed automatically by Selenium)
-- Ollama for local LLM processing
+- Natural language commands for web navigation and interaction
+- Smart content analysis and page type detection
+- Structural navigation with headings and landmarks
+- News article headline detection and reading
+- Element navigation and interaction
+- Accessibility-focused design with ARIA support
+- Local LLM processing for privacy and speed
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone /path/to/web-reader
-cd web-reader
+1. Ensure you have Python 3.10 or later installed
+2. Install Ollama and the llama3.2 model:
+   ```bash
+   # Install Ollama (instructions vary by OS)
+   curl -fsSL https://ollama.com/install.sh | sh
+   
+   # Pull the model
+   ollama pull llama3.2
+   ```
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
+3. Install the package:
+   ```bash
+   pip install -e .
+   ```
 
 ## Usage
 
-The web reader provides a natural language interface for web navigation and accessibility. Start the application:
-
+Start the screen reader:
 ```bash
-python another.py
+web-reader
 ```
 
-### Example Commands
+### Available Commands
 
-#### Navigation
-- "Go to example.com"
-- "Next element"
-- "Previous element"
-- "Go to main content"
+- **Navigation**
+  - "Go to example.com"
+  - "Open website.com"
+  - "Visit page.com"
 
-#### Reading
-- "Read the page"
-- "Read this section"
-- "List headings"
-- "List landmarks"
+- **Reading**
+  - "Read the page"
+  - "Read this section"
+  - "List headlines" (for news sites)
+  - "List headings" (for page structure)
 
-#### Interaction
-- "Click the login button"
-- "Type my email test@example.com into the email field"
-- "Find text about pricing"
-- "Is this a clickable element?"
+- **Element Navigation**
+  - "Next element"
+  - "Previous element"
+  - "Go to main content"
+  - "List landmarks"
+
+- **Interaction**
+  - "Click the login button"
+  - "Click the menu"
+  - "Find text about pricing"
+
+### Examples
+
+```
+What would you like me to do? go to nytimes.com
+Navigated to https://nytimes.com. This appears to be a news page. News website homepage
+
+What would you like me to do? list headlines
+Found these news headlines:
+• Biden Seeks Solace in Meeting with Pope Francis
+• Trump's Clean Energy Policy Raises Investor Concerns
+...
+
+What would you like me to do? list headings
+Found these headings:
+H1: New York Times - Top Stories
+H2: Top Stories
+H2: Sections
+...
+
+What would you like me to do? click wirecutter
+Clicked element: 'Wirecutter'. Would you like me to read the updated content?
+```
 
 ## Architecture
 
-The application uses a three-tier architecture:
+The application uses a modular architecture with these key components:
 
-1. **LLM Interface (LangChain)**
-   - Natural language understanding
-   - Command interpretation
-   - Context management
+- **LLM Integration**: Local language model for command understanding and content analysis
+- **Action System**: Modular command handlers for navigation, reading, and interaction
+- **State Management**: Tracks navigation state and page context
+- **Browser Control**: Automated browser interaction with accessibility support
 
-2. **Action Graph (LangGraph)**
-   - State machine for flow control
-   - Action execution
-   - Error handling
-
-3. **Browser Interface (Selenium)**
-   - Web page automation
-   - Content extraction
-   - Element interaction
-
-For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Development
 
@@ -88,48 +100,50 @@ For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ```
 web-reader/
-├── another.py          # Main application
-├── ARCHITECTURE.md     # Architecture documentation
-├── README.md          # Project documentation
-├── requirements.txt   # Python dependencies
-└── venv/             # Virtual environment
+├── src/
+│   ├── actions/          # Command handlers
+│   │   ├── __init__.py
+│   │   ├── navigation.py # URL and element navigation
+│   │   ├── reading.py    # Content reading and analysis
+│   │   ├── interaction.py # Element interaction
+│   │   └── landmarks.py  # Landmark navigation
+│   ├── utils/
+│   │   ├── errors.py     # Error handling
+│   │   └── logging.py    # Logging setup
+│   ├── browser.py        # Browser automation
+│   ├── config.py         # Configuration
+│   ├── main.py          # Entry point
+│   └── state.py         # State management
+├── setup.py
+└── README.md
 ```
 
-### Testing
+### Adding New Actions
 
-Run the test suite:
+1. Create a new action function in the appropriate module under `src/actions/`
+2. Use the `@register_action` decorator to register it
+3. Add the action name to `VALID_ACTIONS` in `config.py`
+4. Update the LLM prefix in `config.py` to help the model understand when to use the action
 
-```bash
-pytest
+Example:
+```python
+from ..state import State
+from . import register_action
+from langgraph.graph import END
+
+@register_action("my_action")
+def my_action(state: State) -> dict:
+    """Implement your action here"""
+    return {
+        "messages": [{"role": "assistant", "content": "Action result"}],
+        "next": END
+    }
 ```
 
-### Contributing
+## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Write tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
-## Troubleshooting
-
-### Common Issues
-
-1. **LLM Issues**
-   - Ensure Ollama is running
-   - Check model availability
-   - Verify JSON parsing
-
-2. **Browser Issues**
-   - Let Selenium manage Chrome
-   - Check network connectivity
-   - Verify page accessibility
-
-3. **State Management**
-   - Check state transitions
-   - Verify action context
-   - Monitor error handling
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License - see LICENSE file for details
+This project is licensed under the MIT License - see the LICENSE file for details.

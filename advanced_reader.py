@@ -528,17 +528,24 @@ def prev_element(state: State):
 
 def list_landmarks(state: State):
     """List all landmarks and sections"""
-    landmarks = get_landmarks_and_anchors(state["driver"])
-    if landmarks:
-        content = "\n".join(desc for _, desc in landmarks)
+    try:
+        landmarks = get_landmarks_and_anchors(state["driver"])
+        if landmarks:
+            content = "\n".join(desc for _, desc in landmarks)
+            return {
+                "messages": [{"role": "assistant", "content": f"Found these landmarks and sections:\n\n{content}"}],
+                "next": END
+            }
+        else:
+            return {
+                "messages": [{"role": "assistant", "content": "No landmarks or major sections found on this page."}],
+                "next": END
+            }
+    except Exception as e:
+        logger.error(f"Error in list_landmarks: {str(e)}")
         return {
-            "messages": [{"role": "assistant", "content": f"Found these landmarks and sections:\n\n{content}"}],
-            "next": None
-        }
-    else:
-        return {
-            "messages": [{"role": "assistant", "content": "No landmarks or major sections found on this page."}],
-            "next": None
+            "messages": [{"role": "assistant", "content": "An error occurred while listing landmarks. Please try again."}],
+            "next": END
         }
 
 def goto_landmark(state: State):
@@ -600,36 +607,43 @@ def read_section(state: State):
 
 def should_continue(state: State):
     """Determine if we should continue processing"""
-    messages = state["messages"]
-    last_message = messages[-1].content if messages else ""
-    logger.debug(f"Processing last message in should_continue: {last_message}")
-    
-    # After listing landmarks, prompt for navigation
-    if "Found these landmarks and sections:" in last_message:
+    try:
+        messages = state["messages"]
+        last_message = messages[-1].content if messages else ""
+        logger.debug(f"Processing last message in should_continue: {last_message}")
+        
+        # After listing landmarks, prompt for navigation
+        if "Found these landmarks and sections:" in last_message:
+            return {
+                "messages": [{"role": "assistant", "content": "Which section would you like to go to? You can say 'go to [section name]'"}],
+                "next": END
+            }
+        
+        # After navigating to a section, offer to read it
+        if "Moved to" in last_message and "Content preview" in last_message:
+            return {
+                "messages": [{"role": "assistant", "content": "Would you like me to read this section? Say 'read section' to view the content."}],
+                "next": END
+            }
+        
+        # After reading content, offer navigation options
+        if "Content of current section:" in last_message:
+            return {
+                "messages": [{"role": "assistant", "content": "You can say 'next element' to move forward, 'previous element' to go back, or 'list landmarks' to see all sections."}],
+                "next": END
+            }
+        
+        # Default: end the chain
         return {
-            "messages": [{"role": "assistant", "content": "Which section would you like to go to? You can say 'go to [section name]'"}],
-            "next": None
+            "messages": [],
+            "next": END
         }
-    
-    # After navigating to a section, offer to read it
-    if "Moved to" in last_message and "Content preview" in last_message:
+    except Exception as e:
+        logger.error(f"Error in should_continue: {str(e)}")
         return {
-            "messages": [{"role": "assistant", "content": "Would you like me to read this section? Say 'read section' to view the content."}],
-            "next": None
+            "messages": [],
+            "next": END
         }
-    
-    # After reading content, offer navigation options
-    if "Content of current section:" in last_message:
-        return {
-            "messages": [{"role": "assistant", "content": "You can say 'next element' to move forward, 'previous element' to go back, or 'list landmarks' to see all sections."}],
-            "next": None
-        }
-    
-    # Default: end the chain
-    return {
-        "messages": [],
-        "next": None
-    }
 
 # Build graph using Command pattern
 workflow = StateGraph(State)
@@ -645,8 +659,12 @@ workflow.add_node("determine_action", determine_action)
 workflow.add_conditional_edges(
     "determine_action",
     lambda x: x.get("next"),
-    {action: action for action in VALID_ACTIONS.values()}
+    {**{action: action for action in VALID_ACTIONS.values()}, END: END}
 )
+
+# Add edges from action nodes to END
+for node_name in VALID_ACTIONS.values():
+    workflow.add_edge(node_name, END)
 
 # Set entry point and compile
 workflow.set_entry_point("determine_action")

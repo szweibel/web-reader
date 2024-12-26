@@ -25,3 +25,6 @@ web-reader-electron/package-lock.json
 
 # Temporary files
 *.tmp
+
+
+gc_seed_grant_proposal.txt
