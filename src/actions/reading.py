@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from ..state import State, PageContext, ElementContext, ActionPrediction
+from ..state import State, PageContext, ElementContext, ActionPrediction, Task, TaskStatus, create_task_status
 from ..utils.logging import logger
 from ..utils.errors import create_error_response
 from . import register_action
@@ -62,43 +62,310 @@ def create_result(
         error=error
     )
 
-def handle_dynamic_content(state: State, soup: BeautifulSoup) -> None:
-    """Handle dynamic content loading"""
-    if state.get("predictions", {}).get("needs_wait"):
-        # Wait for dynamic content
+class WaitStrategy:
+    """Enhanced waiting for dynamic content"""
+    @staticmethod
+    def wait_for_content(driver, strategy: str, target: str = None):
+        """
+        Wait for content using specified strategy
+        
+        Strategies:
+        - idle: Wait for network idle
+        - selector: Wait for specific element
+        - text: Wait for text to appear
+        """
         try:
-            # Wait for common dynamic content indicators
-            WebDriverWait(state["driver"], 3).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "loaded"))
+            if strategy == "idle":
+                WebDriverWait(driver, 5).until(
+                    lambda d: d.execute_script('return document.readyState') == 'complete'
+                )
+            elif strategy == "selector" and target:
+                WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, target))
+                )
+            elif strategy == "text" and target:
+                WebDriverWait(driver, 5).until(
+                    EC.text_to_be_present_in_element((By.TAG_NAME, "body"), target)
+                )
+            
+            # Additional check for accessibility elements
+            WebDriverWait(driver, 3).until(
+                lambda d: d.find_element(By.CSS_SELECTOR, '[role="main"], main, [role="article"], article')
             )
-        except:
-            pass
+            
+        except Exception as e:
+            logger.error(f"Wait strategy {strategy} failed: {str(e)}")
+            # Fallback to basic load check
+            WebDriverWait(driver, 3).until(
+                lambda d: d.execute_script('return document.readyState') == 'complete'
+            )
+
+def handle_dynamic_content(state: State, soup: BeautifulSoup) -> BeautifulSoup:
+    """Enhanced dynamic content handling"""
+    if state.get("predictions", {}).get("needs_wait"):
+        # First try waiting for network idle
+        WaitStrategy.wait_for_content(state["driver"], "idle")
+        
+        # Then wait for main content based on page type
+        if state["page_context"].type == "article":
+            WaitStrategy.wait_for_content(state["driver"], "selector", "article, [role='article']")
+        elif state["page_context"].type == "news":
+            WaitStrategy.wait_for_content(state["driver"], "selector", ".article, .story, .post")
         
         # Update soup with new content
         soup = BeautifulSoup(state["driver"].page_source, "html.parser")
     
     return soup
 
+def extract_page_content(driver, soup: BeautifulSoup, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enhanced content extraction with structured output
+    
+    Features:
+    - Content type-specific extraction
+    - Semantic relationship mapping
+    - Accessibility metadata
+    """
+    content = {
+        "type": analysis["type"],
+        "metadata": {
+            "title": driver.title,
+            "url": driver.current_url,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        },
+        "accessibility": {
+            "landmarks": [],
+            "headings": [],
+            "aria_labels": [],
+            "tab_order": []
+        },
+        "content": {
+            "main": None,
+            "sections": [],
+            "navigation": None,
+            "interactive_elements": []
+        }
+    }
+    
+    # Extract landmarks
+    for element in soup.find_all(attrs={"role": True}):
+        content["accessibility"]["landmarks"].append({
+            "role": element["role"],
+            "label": element.get("aria-label", ""),
+            "text": element.get_text()[:100]
+        })
+    
+    # Extract headings with hierarchy
+    headings = []
+    current_section = None
+    for tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+        for heading in soup.find_all(tag):
+            heading_data = {
+                "level": int(tag[1]),
+                "text": heading.get_text(),
+                "id": heading.get("id", ""),
+                "parent": current_section
+            }
+            if tag == "h1":
+                current_section = heading_data
+            headings.append(heading_data)
+    content["accessibility"]["headings"] = headings
+    
+    # Extract tab order
+    focusable = soup.find_all(["a", "button", "input", "select", "textarea", "[tabindex]"])
+    for i, element in enumerate(focusable):
+        content["accessibility"]["tab_order"].append({
+            "index": i + 1,
+            "type": element.name,
+            "text": element.get_text() or element.get("placeholder", ""),
+            "aria_label": element.get("aria-label", "")
+        })
+    
+    # Extract main content based on page type
+    if analysis["type"] == "article":
+        article = soup.find("article") or soup.find(attrs={"role": "article"})
+        if article:
+            content["content"]["main"] = {
+                "title": article.find(["h1", "h2"]).get_text() if article.find(["h1", "h2"]) else "",
+                "text": article.get_text(),
+                "sections": []
+            }
+            # Break into sections
+            for section in article.find_all(["section", "div"], class_=lambda x: x and "section" in x):
+                content["content"]["sections"].append({
+                    "title": section.find(["h1", "h2", "h3"]).get_text() if section.find(["h1", "h2", "h3"]) else "",
+                    "text": section.get_text(),
+                    "type": section.get("class", [""])[0]
+                })
+    
+    elif analysis["type"] == "news":
+        # Extract headlines and articles
+        content["content"]["articles"] = []
+        for article in soup.find_all(["article"], class_=lambda x: x and "article" in str(x)):
+            content["content"]["articles"].append({
+                "headline": article.find(["h1", "h2", "h3"]).get_text() if article.find(["h1", "h2", "h3"]) else "",
+                "summary": article.get_text()[:200],
+                "link": article.find("a")["href"] if article.find("a") else None
+            })
+    
+    # Extract interactive elements
+    for element in soup.find_all(["button", "a", "input", "select"]):
+        content["content"]["interactive_elements"].append({
+            "type": element.name,
+            "text": element.get_text() or element.get("placeholder", ""),
+            "aria_label": element.get("aria-label", ""),
+            "is_visible": bool(element.get("style", "").find("display: none") == -1),
+            "location": element.get("id", "") or element.get("class", [""])[0]
+        })
+    
+    return content
+
 def extract_section_content(section: BeautifulSoup) -> Dict[str, str]:
-    """Extract content from a page section"""
+    """Extract content from a page section with enhanced metadata"""
+    heading = section.find(["h1", "h2", "h3", "h4", "h5", "h6"])
     return {
-        "title": section.find(["h1", "h2", "h3", "h4", "h5", "h6"]).get_text(strip=True) if section.find(["h1", "h2", "h3", "h4", "h5", "h6"]) else "",
+        "title": heading.get_text(strip=True) if heading else "",
         "content": section.get_text(separator="\n", strip=True),
         "type": section.name or section.get("role", "section"),
-        "class": " ".join(section.get("class", []))
+        "class": " ".join(section.get("class", [])),
+        "aria_label": section.get("aria-label", ""),
+        "id": section.get("id", ""),
+        "has_interactive": bool(section.find_all(["button", "a", "input", "select"])),
+        "subsections": [
+            {
+                "title": subsec.find(["h1", "h2", "h3", "h4", "h5", "h6"]).get_text(strip=True) if subsec.find(["h1", "h2", "h3", "h4", "h5", "h6"]) else "",
+                "content": subsec.get_text(separator="\n", strip=True)
+            }
+            for subsec in section.find_all(["section", "div"], recursive=False)
+            if "section" in str(subsec.get("class", []))
+        ]
     }
 
-def analyze_content_structure(soup: BeautifulSoup) -> Dict[str, Any]:
-    """Analyze page content structure"""
+def analyze_page_structure(driver, soup: BeautifulSoup) -> Dict[str, Any]:
+    """
+    Enhanced page analysis with structured output
+    
+    Features:
+    - Semantic structure detection
+    - Content type classification
+    - Accessibility evaluation
+    - Navigation suggestions
+    """
+    # Extract key elements and metadata
+    title = driver.title
+    main_content = soup.find("main") or soup.find(attrs={"role": "main"})
+    navigation = soup.find("nav") or soup.find(attrs={"role": "navigation"})
+    landmarks = soup.find_all(attrs={"role": True})
+    
+    # Analyze semantic structure
     structure = {
-        "main_content": bool(soup.find("main")),
-        "navigation": bool(soup.find("nav")),
-        "sidebar": bool(soup.find("aside", class_="sidebar")),
-        "footer": bool(soup.find("footer")),
+        "main_content": bool(main_content),
+        "navigation": bool(navigation),
+        "sidebar": bool(soup.find("aside") or soup.find(attrs={"role": "complementary"})),
+        "footer": bool(soup.find("footer") or soup.find(attrs={"role": "contentinfo"})),
+        "header": bool(soup.find("header") or soup.find(attrs={"role": "banner"})),
         "forms": len(soup.find_all("form")),
-        "interactive_elements": len(soup.find_all(["button", "input", "select", "textarea"]))
+        "interactive_elements": len(soup.find_all(["button", "input", "select", "textarea"])),
+        "landmarks": [{"role": l["role"], "label": l.get("aria-label", ""), "text": l.get_text()[:100]} for l in landmarks],
+        "has_dynamic_content": bool(
+            soup.find_all("script", src=True) or
+            soup.find_all(["[x-data]", "[v-if]", "react-root"])
+        )
     }
-    return structure
+    
+    # Detect content type
+    content_type = "unknown"
+    if soup.find("article") or soup.find(attrs={"role": "article"}):
+        content_type = "article"
+    elif len(soup.find_all(["h1", "h2", "h3"], class_=lambda x: x and any(c in str(x).lower() for c in ["headline", "title"]))) > 3:
+        content_type = "news"
+    elif structure["forms"] > 0:
+        content_type = "form"
+    elif soup.find("table") or soup.find(attrs={"role": "grid"}):
+        content_type = "data"
+    
+    # Evaluate accessibility
+    accessibility_score = 0
+    accessibility_notes = []
+    
+    # Check landmarks
+    if structure["main_content"]:
+        accessibility_score += 20
+    else:
+        accessibility_notes.append("Missing main content landmark")
+        
+    if structure["navigation"]:
+        accessibility_score += 10
+    
+    # Check headings
+    headings = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
+    if headings:
+        accessibility_score += 20
+        if not soup.find("h1"):
+            accessibility_notes.append("Missing H1 heading")
+    else:
+        accessibility_notes.append("No headings found")
+    
+    # Check images
+    images = soup.find_all("img")
+    images_with_alt = [img for img in images if img.get("alt")]
+    if images:
+        alt_ratio = len(images_with_alt) / len(images)
+        accessibility_score += int(alt_ratio * 20)
+        if alt_ratio < 1:
+            accessibility_notes.append(f"{len(images) - len(images_with_alt)} images missing alt text")
+    
+    # Check forms
+    forms = soup.find_all("form")
+    for form in forms:
+        inputs = form.find_all(["input", "select", "textarea"])
+        labels = form.find_all("label")
+        if len(inputs) > len(labels):
+            accessibility_notes.append("Some form fields missing labels")
+            break
+    
+    # Check ARIA
+    elements_with_aria = soup.find_all(lambda tag: any(attr for attr in tag.attrs if attr.startswith("aria-")))
+    if elements_with_aria:
+        accessibility_score += 10
+    
+    # Generate navigation suggestions based on content type and structure
+    suggestions = []
+    if content_type == "article":
+        suggestions.extend([
+            "read article content",
+            "list headings for structure",
+            "navigate to comments section"
+        ])
+    elif content_type == "news":
+        suggestions.extend([
+            "list headlines",
+            "read top story",
+            "find latest news"
+        ])
+    elif content_type == "form":
+        suggestions.extend([
+            "list form fields",
+            "navigate to submit button",
+            "check required fields"
+        ])
+    
+    if structure["navigation"]:
+        suggestions.append("explore navigation menu")
+    if structure["landmarks"]:
+        suggestions.append("list page landmarks")
+    
+    return {
+        "type": content_type,
+        "semantic_structure": structure,
+        "accessibility": {
+            "score": accessibility_score,
+            "notes": accessibility_notes
+        },
+        "suggested_actions": suggestions,
+        "title": title,
+        "url": driver.current_url
+    }
 
 @register_action("read_page")
 def read_page(state: State) -> ActionResult:
@@ -113,9 +380,9 @@ def read_page(state: State) -> ActionResult:
         if state.get("predictions", {}).get("needs_wait"):
             soup = handle_dynamic_content(state, soup)
         
-        # Analyze content sequentially
-        structure = analyze_content_structure(soup)
-        headlines = extract_headlines(soup) if state["page_context"].has_headlines else None
+        # Enhanced page analysis
+        analysis = analyze_page_structure(state["driver"], soup)
+        headlines = extract_headlines(soup) if analysis["type"] == "news" else None
         
         # Find main content area
         main_content = soup.find("main") or soup.find(attrs={"role": "main"}) or soup
@@ -149,32 +416,54 @@ def read_page(state: State) -> ActionResult:
         # Update state with rich context
         state_updates = {
             "page_context": PageContext(
-                type=state["page_context"].type,
-                has_main=structure["main_content"],
-                has_nav=structure["navigation"],
+                type=analysis["type"],
+                has_main=analysis["semantic_structure"]["main_content"],
+                has_nav=analysis["semantic_structure"]["navigation"],
                 has_article=bool(sections),
                 has_headlines=bool(headlines),
-                has_forms=bool(structure["forms"]),
-                dynamic_content=output.dynamic_content,
+                has_forms=bool(analysis["semantic_structure"]["forms"]),
+                dynamic_content=analysis["semantic_structure"]["has_dynamic_content"],
                 scroll_position=0,
                 viewport_height=state["driver"].execute_script("return window.innerHeight"),
                 total_height=state["driver"].execute_script("return document.documentElement.scrollHeight")
             )
         }
         
-        # Format message based on content
-        message = f"Here's what I found on the page:\n\n"
+        # Format enhanced message with accessibility info and suggestions
+        message_parts = []
+        message_parts.append(f"Here's what I found on this {analysis['type']} page:\n")
+        
+        # Add accessibility information
+        message_parts.append(f"Accessibility Score: {analysis['accessibility']['score']}/100")
+        if analysis['accessibility']['notes']:
+            message_parts.append("Accessibility Notes:")
+            for note in analysis['accessibility']['notes']:
+                message_parts.append(f"- {note}")
+        message_parts.append("")  # Add spacing
+        
+        # Add content summary
         if summary:
-            message += f"{summary}\n\n"
+            message_parts.append(summary)
+            message_parts.append("")
+        
+        # Add section information
         if sections:
-            message += f"\nThe page contains {len(sections)} main sections. Use 'read section [number]' to read a specific section."
+            message_parts.append(f"The page contains {len(sections)} main sections. Use 'read section [number]' to read a specific section.")
+        
+        # Add headline information
         if headlines:
-            message += f"\n\nI also found {len(headlines)} headlines. Use 'list headlines' to see them."
+            message_parts.append(f"\nI found {len(headlines)} headlines. Use 'list headlines' to see them.")
+        
+        # Add navigation suggestions
+        if analysis['suggested_actions']:
+            message_parts.append("\nSuggested actions:")
+            for action in analysis['suggested_actions']:
+                message_parts.append(f"- {action}")
             
         return create_result(
             output=output,
             state_updates=state_updates,
-            messages=[message]
+            messages=["\n".join(message_parts)]
         )
         
     except Exception as e:
@@ -465,12 +754,12 @@ def goto_headline(state: State) -> ActionResult:
             WebDriverWait(state["driver"], 3).until(
                 EC.presence_of_element_located((By.TAG_NAME, "article"))
             )
-        except:
-            pass
+        except Exception:
+            logger.debug("No article tag found, continuing anyway")
             
-        # Analyze new page context
+        # Analyze new page context with enhanced analysis
         soup = BeautifulSoup(state["driver"].page_source, "html.parser")
-        structure = analyze_content_structure(soup)
+        analysis = analyze_page_structure(state["driver"], soup)
         
         return create_result(
             output=headline,
@@ -479,13 +768,13 @@ def goto_headline(state: State) -> ActionResult:
                 "focusable_elements": [],
                 "last_found_element": None,
                 "page_context": PageContext(
-                    type="article",
-                    has_main=structure["main_content"],
-                    has_nav=structure["navigation"],
+                    type=analysis["type"],
+                    has_main=analysis["semantic_structure"]["main_content"],
+                    has_nav=analysis["semantic_structure"]["navigation"],
                     has_article=True,
                     has_headlines=False,
-                    has_forms=bool(structure["forms"]),
-                    dynamic_content=True,
+                    has_forms=bool(analysis["semantic_structure"]["forms"]),
+                    dynamic_content=analysis["semantic_structure"]["has_dynamic_content"],
                     scroll_position=0,
                     viewport_height=state["driver"].execute_script("return window.innerHeight"),
                     total_height=state["driver"].execute_script("return document.documentElement.scrollHeight")
@@ -503,7 +792,6 @@ def goto_headline(state: State) -> ActionResult:
                 f"Navigating to article: {headline.text}. The page is loading and being analyzed. You can use 'read content' to start reading the article."
             ]
         )
-        
     except Exception as e:
-        logger.error(f"Error navigating to headline: {str(e)}")
+        logger.error(f"Error in goto_headline: {str(e)}")
         return create_result(error=f"An error occurred while navigating to the headline: {str(e)}")

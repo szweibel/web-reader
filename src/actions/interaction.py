@@ -15,7 +15,7 @@ from ..state import State, ElementContext, ActionPrediction, PageContext
 from ..utils.errors import ElementNotFoundError, InteractionError
 from ..utils.logging import logger
 from . import register_action
-from .reading import ActionResult, create_result, analyze_content_structure
+from .reading import ActionResult, create_result, analyze_page_structure as analyze_content_structure
 
 @dataclass
 class ElementOutput:

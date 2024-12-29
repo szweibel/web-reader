@@ -3,12 +3,14 @@
 
 import sys
 import json
-from typing import Dict, Any, List, Tuple
+import time
+from typing import Dict, Any, List, Tuple, Union
 from dataclasses import asdict
 from bs4 import BeautifulSoup
 from langgraph.graph import StateGraph, END
-from src.state import State, PageContext, create_initial_state
+from src.state import State, PageContext, create_initial_state, Task, TaskStatus, create_task, create_task_status
 from src.browser import setup_browser, cleanup_browser
+import src.config as config
 from src.config import VALID_ACTIONS, USAGE_EXAMPLES, llm
 from src.utils.logging import logger
 from src.utils.errors import ReaderActionError as ReaderError
@@ -158,35 +160,144 @@ def analyze_context(state: State) -> Dict[str, Any]:
         logger.error(f"Error analyzing context: {str(e)}")
         return {"error": str(e)}
 
-def plan_execution(state: State) -> Dict[str, Any]:
-    """Plan task execution"""
+def plan_task_execution(state: State) -> Dict[str, Any]:
+    """Enhanced task planning with parallel execution support"""
     try:
-        # Get action from user input
+        # Get initial action from user input
         action_result = determine_action(state)
         logger.debug(f"Action determination result: {action_result}")
         
-        # Track attempt count
-        state["attempts"] = state.get("attempts", 0) + 1
-        
-        # If multiple attempts, trigger reflection
-        if state["attempts"] > 1:
-            return {"next": "reflect"}
-            
-        # Ensure we have a valid action result
         if not action_result or action_result.get("error"):
             return {
                 "error": action_result.get("error") if action_result else "Failed to determine action",
                 "next": "error_recovery"
             }
-            
-        return action_result
+        
+        # Create task graph
+        task_graph = build_task_graph(state, action_result)
+        
+        # Find parallel execution opportunities
+        parallel_groups = find_parallel_tasks(task_graph)
+        
+        # Create execution plan
+        execution_plan = create_execution_plan(task_graph, parallel_groups)
+        
+        # Update state with task information
+        state["tasks"] = task_graph
+        state["parallel_groups"] = parallel_groups
+        state["execution_plan"] = execution_plan
+        state["active_tasks"] = set()
+        
+        return {
+            "next": "execute_parallel" if parallel_groups else "execute"
+        }
         
     except Exception as e:
-        logger.error(f"Error in plan_execution: {str(e)}")
+        logger.error(f"Error in plan_task_execution: {str(e)}")
         return {
             "error": f"Failed to plan execution: {str(e)}",
             "next": "error_recovery"
         }
+
+def build_task_graph(state: State, action_result: Dict[str, Any]) -> Dict[str, Task]:
+    """Build task dependency graph"""
+    tasks = {}
+    
+    # Create main task
+    action = action_result["current_action"]
+    action_type = config.VALID_ACTIONS[action]
+    main_task = create_task(
+        task_id=action,
+        task_type=action_type,
+        state={"context": action_result.get("action_context", {})}
+    )
+    tasks[main_task.id] = main_task
+    
+    # Check for potential parallel tasks based on page context
+    page_context = state.get("page_context")
+    if isinstance(page_context, PageContext):
+        # Content analysis can run in parallel with navigation
+        if page_context.has_article or page_context.has_headlines:
+            tasks["analyze_content"] = create_task(
+                task_id="analyze_content",
+                task_type="reading",
+                can_parallel=True
+            )
+        
+        # Structure analysis can run in parallel
+        if page_context.has_main:
+            tasks["analyze_structure"] = create_task(
+                task_id="analyze_structure",
+                task_type="reading",
+                can_parallel=True
+            )
+        
+        # Dynamic content handling
+        if page_context.dynamic_content:
+            tasks["handle_dynamic"] = create_task(
+                task_id="handle_dynamic",
+                task_type="interaction",
+                dependencies=[main_task.id]
+            )
+    
+    return tasks
+
+def find_parallel_tasks(task_graph: Dict[str, Task]) -> List[List[str]]:
+    """Find tasks that can be executed in parallel"""
+    parallel_groups = []
+    visited = set()
+    
+    for task_id, task in task_graph.items():
+        if task_id in visited or not task.can_parallel:
+            continue
+            
+        # Find other parallel tasks at same level
+        parallel_group = [task_id]
+        for other_id, other_task in task_graph.items():
+            if other_id in visited or not other_task.can_parallel:
+                continue
+                
+            # Check if tasks can run in parallel (no dependencies between them)
+            if not (set(task.dependencies) & set(other_task.dependencies)):
+                parallel_group.append(other_id)
+                
+        if len(parallel_group) > 1:
+            parallel_groups.append(parallel_group)
+            visited.update(parallel_group)
+            
+    return parallel_groups
+
+def create_execution_plan(
+    task_graph: Dict[str, Task],
+    parallel_groups: List[List[str]]
+) -> List[Union[str, List[str]]]:
+    """Create optimal execution plan"""
+    plan = []
+    executed = set()
+    
+    while len(executed) < len(task_graph):
+        # Find ready tasks (all dependencies satisfied)
+        ready_tasks = []
+        for task_id, task in task_graph.items():
+            if task_id in executed:
+                continue
+                
+            if all(dep in executed for dep in task.dependencies):
+                ready_tasks.append(task_id)
+        
+        # Check if any ready tasks are in parallel groups
+        for group in parallel_groups:
+            if all(task in ready_tasks for task in group):
+                plan.append(group)
+                executed.update(group)
+                ready_tasks = [t for t in ready_tasks if t not in group]
+        
+        # Add remaining ready tasks sequentially
+        for task in ready_tasks:
+            plan.append(task)
+            executed.add(task)
+            
+    return plan
 
 def prepare_action(state: State) -> Dict[str, Any]:
     """Prepare for action execution, handling setup needs"""
@@ -212,34 +323,102 @@ def prepare_action(state: State) -> Dict[str, Any]:
             "next": "error_recovery"
         }
 
-def execute_action(state: State) -> Dict[str, Any]:
-    """Execute the determined action"""
-    action = state.get("current_action")
-    if not action or action not in VALID_ACTIONS:
-        return {"next": END}
-        
+def execute_parallel_tasks(state: State) -> Dict[str, Any]:
+    """Execute tasks that can run in parallel"""
     try:
-        # Execute action
-        action_func = actions.get_action(VALID_ACTIONS[action])
-        result = action_func(state)
-        
-        # Track execution history
-        state["execution_history"].append({
-            "action": action,
-            "context": state.get("action_context"),
-            "result": result
-        })
-        
-        # If result is an ActionResult, extract its dict representation
-        if hasattr(result, '__dict__'):
-            result = result.__dict__
+        # Get next group of tasks to execute
+        current_plan = state["execution_plan"]
+        if not current_plan:
+            return {"next": END}
             
-        return result
-        
+        next_tasks = current_plan[0]
+        if isinstance(next_tasks, list):
+            # Execute parallel tasks
+            results = {}
+            for task_id in next_tasks:
+                task = state["tasks"][task_id]
+                try:
+                    # Execute task
+                    action_func = actions.get_action(VALID_ACTIONS[task.type])
+                    result = action_func(state)
+                    
+                    # Update task status
+                    state["task_status"][task_id] = create_task_status(
+                        status="completed",
+                        start_time=time.time(),
+                        end_time=time.time()
+                    )
+                    
+                    results[task_id] = result
+                except Exception as e:
+                    logger.error(f"Error executing task {task_id}: {str(e)}")
+                    state["task_status"][task_id] = create_task_status(
+                        status="failed",
+                        error=str(e),
+                        start_time=time.time(),
+                        end_time=time.time()
+                    )
+                    results[task_id] = {"error": str(e)}
+            
+            # Remove executed group from plan
+            state["execution_plan"] = current_plan[1:]
+            
+            # Check results
+            if any(r.get("error") for r in results.values()):
+                return {
+                    "error": "Some parallel tasks failed",
+                    "results": results,
+                    "next": "error_recovery"
+                }
+                
+            return {
+                "results": results,
+                "next": "execute_parallel" if state["execution_plan"] else END
+            }
+        else:
+            # Single task execution
+            task_id = next_tasks
+            task = state["tasks"][task_id]
+            
+            try:
+                # Execute task
+                action_func = actions.get_action(VALID_ACTIONS[task.type])
+                result = action_func(state)
+                
+                # Update task status
+                state["task_status"][task_id] = create_task_status(
+                    status="completed",
+                    start_time=time.time(),
+                    end_time=time.time()
+                )
+                
+                # Remove executed task from plan
+                state["execution_plan"] = current_plan[1:]
+                
+                # Include any messages from the action result
+                return {
+                    "result": result,
+                    "messages": result.get("messages", []),
+                    "next": "execute_parallel" if state["execution_plan"] else END
+                }
+                
+            except Exception as e:
+                logger.error(f"Error executing task {task_id}: {str(e)}")
+                state["task_status"][task_id] = create_task_status(
+                    status="failed",
+                    error=str(e),
+                    start_time=time.time(),
+                    end_time=time.time()
+                )
+                return {
+                    "error": f"Failed to execute {task_id}: {str(e)}",
+                    "next": "error_recovery"
+                }
+                
     except Exception as e:
-        logger.error(f"Error executing action {action}: {str(e)}")
+        logger.error(f"Error in execute_parallel_tasks: {str(e)}")
         return {
-            "error": f"Failed to execute {action}: {str(e)}",
+            "error": f"Failed to execute parallel tasks: {str(e)}",
             "next": "error_recovery"
         }
 
@@ -340,14 +519,6 @@ def reflect_on_execution(state: State) -> Dict[str, Any]:
                 "attempts": 0,
                 "next": "analyze"  # Start fresh with new task
             }
-    elif reflection["strategy"] == "clarify":
-        return {
-            "messages": [{
-                "role": "assistant", 
-                "content": reflection["clarification_needed"]
-            }],
-            "next": END
-        }
     
     # If all else fails or low confidence
     return {
@@ -367,34 +538,45 @@ def build_task_dependencies(tasks: List[str]) -> Dict[str, List[str]]:
     return dependencies
 
 def build_workflow() -> StateGraph:
-    """Build enhanced workflow graph with granular control"""
+    """Build enhanced workflow graph with parallel execution support"""
     workflow = StateGraph(State)
     
     # Add core nodes
-    workflow.add_node("analyze", analyze_context)      # Analyze page context
-    workflow.add_node("plan", plan_execution)         # Plan execution
-    workflow.add_node("prepare", prepare_action)      # Prepare for execution
-    workflow.add_node("execute", execute_action)      # Execute action
-    workflow.add_node("reflect", reflect_on_execution)  # Enhanced reflection
-    # Wrap error handler to match node signature
-    workflow.add_node("error_recovery", lambda state: handle_error_with_llm(state.get("error"), state))  # Error handling
+    workflow.add_node("analyze", analyze_context)           # Analyze page context
+    workflow.add_node("plan", plan_task_execution)         # Enhanced task planning
+    workflow.add_node("prepare", prepare_action)           # Prepare for execution
+    workflow.add_node("execute_parallel", execute_parallel_tasks)  # Task execution (both single and parallel)
+    workflow.add_node("reflect", reflect_on_execution)     # Enhanced reflection
+    workflow.add_node("error_recovery", lambda state: handle_error_with_llm(state.get("error"), state))
     
     # Add base edges
     workflow.add_edge("analyze", "plan")
     workflow.add_edge("plan", "prepare")
-    workflow.add_edge("prepare", "execute")
     
-    # Add conditional edges from execute node
+    # Add conditional edges from prepare node
     workflow.add_conditional_edges(
-        "execute",
+        "prepare",
+        lambda x: x.get("next", "execute_parallel"),
+        {
+            "execute": "execute_parallel",  # Both 'execute' and 'execute_parallel' go to the same node
+            "execute_parallel": "execute_parallel",
+            "error_recovery": "error_recovery"
+        }
+    )
+    
+    # Add conditional edges from execute_parallel node
+    workflow.add_conditional_edges(
+        "execute_parallel",
         lambda x: (
             "error_recovery" if x.get("error")
             else "reflect" if x.get("attempts", 0) > 1
+            else "execute_parallel" if x.get("next") == "execute_parallel"
             else END
         ),
         {
             "error_recovery": "error_recovery",
             "reflect": "reflect",
+            "execute_parallel": "execute_parallel",
             END: END
         }
     )

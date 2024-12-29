@@ -27,7 +27,7 @@ def generate_error_recovery_prompt(error: Exception, state: State, failed_action
     - Remaining sub-tasks: {sub_tasks}
     - Completed tasks: {completed}
     
-    User request: {state['messages'][-1]['content'] if state['messages'] else 'No message'}
+    User request: {state['messages'][-1].content if state['messages'] else 'No message'}
     Execution history: {history}
     
     Analyze the error and suggest a recovery strategy. Consider:

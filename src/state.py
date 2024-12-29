@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 
 @dataclass
 class PageContext:
@@ -38,6 +38,26 @@ class ElementContext:
     attributes: Dict[str, str]
 
 @dataclass
+class Task:
+    """Structured task representation"""
+    id: str
+    type: str  # navigation, interaction, reading, etc.
+    dependencies: List[str]
+    can_parallel: bool
+    state: Dict[str, Any]
+    recovery_strategy: Optional[str]
+
+@dataclass
+class TaskStatus:
+    """Task execution status tracking"""
+    status: str  # pending, running, completed, failed
+    start_time: float
+    end_time: Optional[float]
+    error: Optional[str]
+    attempts: int
+    recovery_plan: Optional[List[str]]
+
+@dataclass
 class ActionPrediction:
     """Predictions about needed interactions"""
     needs_scroll: bool
@@ -48,7 +68,7 @@ class ActionPrediction:
     reasoning: str
 
 class State(TypedDict):
-    """Enhanced state object with rich context"""
+    """Enhanced state object with rich context and parallel task support"""
     # Core state
     messages: Annotated[list, add_messages]
     driver: webdriver.Chrome
@@ -70,10 +90,12 @@ class State(TypedDict):
     attempts: int
     last_successful_actions: List[str]
     
-    # Task management
-    sub_tasks: List[str]
-    task_dependencies: Dict[str, List[str]]
-    completed_tasks: List[str]
+    # Enhanced task management
+    tasks: Dict[str, Task]
+    task_status: Dict[str, TaskStatus]
+    parallel_groups: List[List[str]]
+    active_tasks: set
+    execution_plan: List[Union[str, List[str]]]
     
     # Execution tracking
     execution_history: List[Dict[str, Any]]
@@ -81,7 +103,7 @@ class State(TypedDict):
     strategy: str | None
     recovery_attempts: Dict[str, int]
 def create_initial_state(driver: webdriver.Chrome, user_input: str) -> State:
-    """Create enhanced initial state with rich context"""
+    """Create enhanced initial state with rich context and task management"""
     return State({
         # Core state
         "messages": [{"role": "user", "content": user_input}],
@@ -115,10 +137,12 @@ def create_initial_state(driver: webdriver.Chrome, user_input: str) -> State:
         "attempts": 0,
         "last_successful_actions": [],
         
-        # Task management
-        "sub_tasks": [],
-        "task_dependencies": {},
-        "completed_tasks": [],
+        # Enhanced task management
+        "tasks": {},
+        "task_status": {},
+        "parallel_groups": [],
+        "active_tasks": set(),
+        "execution_plan": [],
         
         # Execution tracking
         "execution_history": [],
@@ -126,3 +150,39 @@ def create_initial_state(driver: webdriver.Chrome, user_input: str) -> State:
         "strategy": None,
         "recovery_attempts": {}
     })
+
+def create_task(
+    task_id: str,
+    task_type: str,
+    dependencies: List[str] = None,
+    can_parallel: bool = False,
+    state: Dict[str, Any] = None,
+    recovery_strategy: Optional[str] = None
+) -> Task:
+    """Create a new task with the specified parameters"""
+    return Task(
+        id=task_id,
+        type=task_type,
+        dependencies=dependencies or [],
+        can_parallel=can_parallel,
+        state=state or {},
+        recovery_strategy=recovery_strategy
+    )
+
+def create_task_status(
+    status: str = "pending",
+    start_time: float = 0,
+    end_time: Optional[float] = None,
+    error: Optional[str] = None,
+    attempts: int = 0,
+    recovery_plan: Optional[List[str]] = None
+) -> TaskStatus:
+    """Create a new task status object"""
+    return TaskStatus(
+        status=status,
+        start_time=start_time,
+        end_time=end_time,
+        error=error,
+        attempts=attempts,
+        recovery_plan=recovery_plan
+    )
