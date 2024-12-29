@@ -61,3 +61,4 @@ docs/tutorial-analysis/*
 
 # Large files
 gc_seed_grant_proposal.txt
+venv/
