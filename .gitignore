@@ -1,3 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.env
+.venv
+pythonenv*
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
 # Node modules
 node_modules/
 
@@ -11,6 +42,7 @@ models/*
 
 # Logs
 *.log
+/logs/*
 
 # Coverage reports
 coverage/
@@ -18,7 +50,6 @@ coverage/
 # Build output
 build/
 web-reader-electron/build/
-venv/
 
 # Package lock files
 package-lock.json
@@ -26,7 +57,7 @@ web-reader-electron/package-lock.json
 
 # Temporary files
 *.tmp
-/logs/*
 docs/tutorial-analysis/*
 
+# Large files
 gc_seed_grant_proposal.txt
