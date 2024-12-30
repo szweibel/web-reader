@@ -23,114 +23,16 @@ from src.actions import determine_action
 
 import json
 from typing import Dict, Any
-from bs4 import BeautifulSoup
+from dataclasses import asdict
+from langchain.schema.runnable import RunnablePassthrough
+from langchain.schema import HumanMessage
 
-def analyze_context(state: State) -> Dict[str, Any]:
-    """Analyze page context and user intent using LLM"""
-    try:
-        # Get page source and URL
-        soup = BeautifulSoup(state["driver"].page_source, "html.parser")
-        url = state["driver"].current_url
-        
-        # Extract key elements for analysis
-        title = soup.title.string if soup.title else ""
-        headings = [h.get_text().strip() for h in soup.find_all(["h1", "h2", "h3"]) if h.get_text().strip()]
-        meta_desc = soup.find("meta", {"name": "description"})
-        description = meta_desc.get("content", "") if meta_desc else ""
-        
-        # Find potential main content areas
-        main_candidates = []
-        
-        # Check explicit main tag
-        main_tag = soup.find("main")
-        if main_tag:
-            main_candidates.append(("main tag", main_tag))
-            
-        # Check role="main"
-        role_main = soup.find(attrs={"role": "main"})
-        if role_main:
-            main_candidates.append(("role=main", role_main))
-            
-        # Check common content IDs/classes
-        content_patterns = {
-            "id": ["content", "main", "article", "post", "story", "body"],
-            "class": ["content", "main", "article", "post", "story", "body", "entry", "text"]
-        }
-        
-        for attr, patterns in content_patterns.items():
-            for pattern in patterns:
-                if attr == "id":
-                    content_by_attr = soup.find(id=lambda x: x and pattern in x.lower())
-                else:
-                    content_by_attr = soup.find(class_=lambda x: x and pattern in x.lower())
-                if content_by_attr:
-                    main_candidates.append((f"{attr}={pattern}", content_by_attr))
-                
-        # Check article tags and sections with significant content
-        for tag in ["article", "section", "div"]:
-            elements = soup.find_all(tag)
-            for element in elements:
-                # Skip if likely navigation/sidebar/footer
-                if any(cls in str(element.get("class", [])).lower() for cls in ["nav", "menu", "sidebar", "footer", "header", "ad"]):
-                    continue
-                    
-                # Check content significance
-                text_length = len(element.get_text(strip=True))
-                paragraphs = len(element.find_all("p"))
-                if text_length > 500 or paragraphs > 2:  # Significant content threshold
-                    main_candidates.append((f"content-rich {tag}", element))
-            
-        # Analyze content density and quality of candidates
-        main_content_analysis = []
-        for candidate_type, element in main_candidates:
-            # Get text content excluding scripts and styles
-            element_copy = BeautifulSoup(str(element), "html.parser")  # Create a copy to modify
-            for script in element_copy.find_all(["script", "style"]):
-                script.decompose()
-            text = element_copy.get_text(strip=True)
-            
-            # Count meaningful elements
-            links = len(element.find_all("a"))
-            images = len(element.find_all("img"))
-            paragraphs = len(element.find_all("p"))
-            headings = len(element.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]))
-            lists = len(element.find_all(["ul", "ol"]))
-            
-            # Calculate content-to-noise ratio
-            noise_elements = len(element.find_all(class_=lambda x: x and any(p in str(x).lower() for p in ["ad", "promo", "banner", "widget", "sidebar"])))
-            content_elements = paragraphs + headings + lists
-            
-            # Check semantic structure
-            has_article_structure = bool(element.find("article"))
-            has_section_structure = bool(element.find("section"))
-            has_semantic_headings = bool(element.find(["h1", "h2", "h3"]))
-            
-            main_content_analysis.append({
-                "type": candidate_type,
-                "text_length": len(text),
-                "links": links,
-                "images": images,
-                "paragraphs": paragraphs,
-                "headings": headings,
-                "lists": lists,
-                "content_elements": content_elements,
-                "noise_elements": noise_elements,
-                "content_to_noise_ratio": content_elements / (noise_elements + 1),
-                "semantic_structure": {
-                    "has_article": has_article_structure,
-                    "has_section": has_section_structure,
-                    "has_semantic_headings": has_semantic_headings
-                }
-            })
-        
-        # Prepare context for LLM analysis
-        try:
-            main_content_analysis_json = json.dumps(main_content_analysis, indent=2)
-        except Exception as e:
-            logger.error(f"Error serializing main_content_analysis to JSON: {str(e)}")
-            main_content_analysis_json = "Error serializing main_content_analysis to JSON"
-            
-        prompt = f"""Analyze this webpage and determine its type and structure:
+from .state import State, create_initial_state
+from .browser import setup_browser, cleanup_browser
+from .utils.logging import logger
+from .utils.errors import ReaderActionError as ReaderError
+from .workflow import build_workflow
+from .config import USAGE_EXAMPLES
 
         ... (rest of the prompt)
 """
@@ -623,75 +525,59 @@ def process_user_input(graph: StateGraph, state: State) -> None:
     user_input = state['messages'][-1]['content']
     state_id = str(id(state))
     
-    with logger.action_context("process_input", state_id, 
-                             input=user_input) as context:
+    with logger.action_context("process_input", state_id, input=user_input) as context:
         try:
-            for event in graph.stream(state):
-                if event is None:
-                    continue
+            # Execute workflow graph
+            result = graph.invoke(state)
+            
+            logger.debug("Graph execution result", 
+                       context={
+                           "state_id": state_id,
+                           "result": str(result)
+                       })
+            
+            # Track state changes
+            old_state = {
+                "action": state.get("current_action"),
+                "page_context": state.get("page_context")
+            }
+            
+            # Handle result updates
+            if isinstance(result, dict):
+                # Update state fields
+                for field, value in result.items():
+                    if field not in ["messages", "next"]:
+                        logger.debug(f"Updating state: {field}", extra={
+                            "field": field,
+                            "old_value": state.get(field),
+                            "new_value": value,
+                            "state_id": state_id
+                        })
+                        state[field] = value
                 
-                logger.debug("Processing event", 
-                           context={"event": event, "state_id": state_id})
+                # Handle messages
+                if "messages" in result:
+                    for msg in result["messages"]:
+                        if isinstance(msg, dict) and msg.get("role") == "assistant":
+                            print(f"\n{msg['content']}")
                 
-                # Track state before update
-                old_state = {
-                    "action": state.get("current_action"),
-                    "page_context": state.get("page_context"),
-                    "predictions": state.get("predictions")
-                }
-                
-                # Process event updates
-                for key, value in event.items():
-                    if isinstance(value, dict):
-                        # Update state first
-                        for field, field_value in value.items():
-                            if field not in ["messages", "next"]:
-                                state[field] = field_value
-                                
-                                # Log state transitions
-                                if field in ["current_action", "page_context", "predictions"]:
-                                    logger.log_state_transition(
-                                        from_state=str(old_state.get(field)),
-                                        to_state=str(field_value),
-                                        context={
-                                            "field": field,
-                                            "state_id": state_id
-                                        }
-                                    )
-                        
-                        # Print messages after state is updated
-                        if "messages" in value:
-                            for msg in value["messages"]:
-                                if isinstance(msg, dict) and msg.get("role") == "assistant":
-                                    print(f"\n{msg['content']}")
-                
-                # Log predictions if available
-                if "predictions" in event:
-                    predictions = event["predictions"]
-                    actual = {
-                        "needs_scroll": state.get("page_context", {}).get("scroll_position", 0) > 0,
-                        "needs_wait": state.get("page_context", {}).get("dynamic_content", False),
-                        "potential_popups": False  # Will be updated if popup detected
-                    }
-                    logger.log_prediction(predictions, actual)
-                
-                # Update context with latest state (convert complex objects to dicts/strings)
+                # Update context
                 if state.get("page_context"):
-                    context.page_context = state.get("page_context", {})
+                    context.page_context = state.get("page_context")
                 context.element_context = str(state.get("element_context"))
-                context.predictions = str(state.get("predictions"))
                 
         except Exception as e:
-            logger.log_error(f"Error in process_user_input: {str(e)}", {
+            logger.error(f"Error in process_user_input: {str(e)}", extra={
                 "state_id": state_id,
                 "input": user_input
             })
             raise
 
 def main() -> None:
-    """Enhanced main application entry point with structured logging"""
+    """Main application entry point"""
     with logger.action_context("application_startup", "main") as context:
         logger.info("Starting Natural Language Screen Reader")
+        driver = None
         
         try:
             # Initialize browser
@@ -702,10 +588,9 @@ def main() -> None:
             print(USAGE_EXAMPLES)
             print("\nType 'exit' to quit")
             
-            # Initialize workflow
+            # Build LCEL workflow
             graph = build_workflow()
-            logger.info("Workflow initialized", 
-                       context={"graph_nodes": list(graph.nodes.keys())})
+            logger.info("LCEL workflow initialized")
             
             # Main interaction loop
             interaction_count = 0
@@ -720,42 +605,55 @@ def main() -> None:
                     
                     with logger.action_context("user_interaction", interaction_id,
                                              input=user_input) as interaction_context:
-                        # Create new state for each interaction
+                        # Create new state
+                        logger.debug("Creating initial state", extra={"user_input": user_input})
                         state = create_initial_state(driver, user_input)
+                        logger.debug("Setting messages", extra={"message": str(HumanMessage(content=user_input))})
+                        state["messages"] = [HumanMessage(content=user_input)]
                         
-                        # Process the input
-                        process_user_input(graph, state)
+                        # Log state before processing
+                        logger.debug("Processing user input", extra={
+                            "input": user_input,
+                            "state": {
+                                "messages": [str(m) for m in state["messages"]],
+                                "current_action": state.get("current_action"),
+                                "action_context": state.get("action_context")
+                            }
+                        })
+                        
+                        # Process input through workflow
+                        try:
+                            process_user_input(graph, state)
+                        except Exception as e:
+                            logger.error(f"Error in process_user_input: {str(e)}", extra={
+                                "error_type": type(e).__name__,
+                                "traceback": str(e.__traceback__)
+                            })
+                            raise
                         
                         # Update metrics
                         interaction_count += 1
                         
                 except KeyboardInterrupt:
-                    logger.info("Operation cancelled by user", 
-                              context={"interaction_id": interaction_id})
+                    logger.info("Operation cancelled by user")
                     print("\nOperation cancelled by user")
                     continue
                 except ReaderError as e:
-                    logger.log_error(str(e), {
-                        "interaction_id": interaction_id,
-                        "error_type": "ReaderError"
-                    })
+                    logger.error(str(e))
                     print(f"\n{str(e)}")
                     continue
                 except Exception as e:
-                    # Just print the error message, avoid logging here
                     print(f"\nAn unexpected error occurred. Please try again.")
                     continue
                     
         except Exception as e:
-            logger.log_error(str(e), {
-                "error_type": "FatalError",
-                "startup_context": asdict(context)
-            })
+            logger.error(f"Fatal error: {str(e)}")
             print(f"\nFatal error: {str(e)}")
             
         finally:
-            print("\nClosing browser...")
-            cleanup_browser(driver)
+            if driver:
+                print("\nClosing browser...")
+                cleanup_browser(driver)
             logger.info("Application shutdown complete")
 
 if __name__ == "__main__":

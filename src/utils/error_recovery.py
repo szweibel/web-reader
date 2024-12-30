@@ -65,7 +65,7 @@ def handle_error_with_llm(error: Exception, state: State) -> Dict[str, Any]:
         # Update state with recovery strategy
         state_updates = {
             "strategy": recovery["strategy"],
-            "error": None  # Clear error since we're handling it
+            "last_error": None  # Clear error since we're handling it
         }
         
         if recovery["strategy"] == "decompose":

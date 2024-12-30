@@ -1,8 +1,10 @@
-from typing import Annotated
+from typing import Annotated, List, Dict, Optional, Any
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from selenium.webdriver.remote.webelement import WebElement
 from selenium import webdriver
+from langchain.schema import HumanMessage
+from .utils.logging import logger
 import sys
 import os
 
@@ -99,14 +101,14 @@ class State(TypedDict):
     
     # Execution tracking
     execution_history: List[Dict[str, Any]]
-    error: str | None
+    last_error: str | None
     strategy: str | None
     recovery_attempts: Dict[str, int]
 def create_initial_state(driver: webdriver.Chrome, user_input: str) -> State:
     """Create enhanced initial state with rich context and task management"""
     return State({
         # Core state
-        "messages": [{"role": "user", "content": user_input}],
+        "messages": [HumanMessage(content=user_input)],
         "driver": driver,
         
         # Browser state
@@ -146,7 +148,7 @@ def create_initial_state(driver: webdriver.Chrome, user_input: str) -> State:
         
         # Execution tracking
         "execution_history": [],
-        "error": None,
+        "last_error": None,
         "strategy": None,
         "recovery_attempts": {}
     })

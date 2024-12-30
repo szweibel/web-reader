@@ -37,7 +37,7 @@ def handle_error(error: Exception) -> Dict[str, Any]:
     """Handle different types of errors"""
     if isinstance(error, ReaderActionError):
         return {
-            "error": str(error),
+            "last_error": str(error),
             "error_context": {
                 "action": error.action,
                 "context": error.context

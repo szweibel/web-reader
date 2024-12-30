@@ -6,7 +6,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain.schema.runnable import RunnablePassthrough, RunnableLambda
-from langchain_ollama import ChatOllama
+from langchain_community.chat_models import ChatOllama
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By

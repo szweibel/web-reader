@@ -38,7 +38,7 @@ def get_action(name: str) -> ActionFunction:
 def get_action_prompt(state: State) -> str:
     """Generate the action prompt from user input"""
     messages = state["messages"]
-    last_message = messages[-1].content if messages else ""
+    last_message = messages[-1].content if hasattr(messages[-1], 'content') else messages[-1].get('content', '') if isinstance(messages[-1], dict) else str(messages[-1]) if messages else ""
     
     prompt = f"""Analyze this user message and determine the next action: "{last_message}"
     
@@ -103,12 +103,25 @@ def determine_action(state: State) -> Dict[str, Any]:
             return create_result(error=error_msg)
         
         try:
+            # Get LLM response
             response = config.llm.invoke(prompt)
-            logger.debug(f"LLM response: {response}")
-            logger.debug(f"LLM raw response: {response.content}")
+            logger.debug("LLM response:", extra={"response": str(response)})
+            
+            # Extract content from response
+            if hasattr(response, 'content'):
+                content = response.content
+            elif isinstance(response, str):
+                content = response
+            else:
+                content = str(response)
+                
+            logger.debug("LLM content:", extra={"content": content})
             
             # Parse the JSON response
-            parsed_response = json.loads(response.content)
+            parsed_response = json.loads(content)
+            logger.debug("Parsed response:", extra={"parsed": parsed_response})
+            
+            # Extract fields
             action = parsed_response.get("action")
             confidence = parsed_response.get("confidence", 0)
             context = parsed_response.get("context")

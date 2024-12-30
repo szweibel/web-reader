@@ -39,9 +39,11 @@ models/*
 
 # macOS files
 .DS_Store
-
-# Logs
+.env
+venv/
+.vscode/
 *.log
+<<<<<<< HEAD
 /logs/*
 
 # Coverage reports
@@ -62,3 +64,5 @@ docs/tutorial-analysis/*
 # Large files
 gc_seed_grant_proposal.txt
 venv/
+=======
+>>>>>>> 643e727d (newsrc)
